@@ -23,9 +23,9 @@ else:
 
 
 class Parser:
-    def __init__(self,design_path):
+    def __init__(self,subdir,design_path):
         self.case_name = os.path.split(design_path)[-1]
-        self.design_name = self.case_name.split('_')[-2]
+        self.design_name = '[{}]_{}'.format(subdir,self.case_name.split('_')[-2])
         self.design_path = design_path
         self.wires_width = {}
         self.const0_index = 0
@@ -325,19 +325,21 @@ class Parser:
 def main():
     dataset = []
     num = 0
-    for design in os.listdir(rawdata_path):
-        # design_name,index = design.split('_')[-2:]
-        # print(design_name,index)
-        # exit()
-        # if '190' not in design: continue
-        print("Processing {}".format(design))
-        design_dir = os.path.join(rawdata_path,design)
-        if not os.path.isdir(design_dir):
-            continue
-        parser = Parser(design_dir)
-        graph, graph_info = parser.parse()
+    for subdir in os.listdir(rawdata_path):
+        subdir_path = os.path.join(rawdata_path,subdir)
+        for design in os.listdir(subdir_path):
+            # design_name,index = design.split('_')[-2:]
+            # print(design_name,index)
+            # exit()
+            # if '190' not in design: continue
+            print("Processing {}/{}".format(subdir,design))
+            design_dir = os.path.join(subdir_path,design)
+            if not os.path.isdir(design_dir):
+                continue
+            parser = Parser(subdir,design_dir)
+            graph, graph_info = parser.parse()
 
-        dataset.append((graph,graph_info))
+            dataset.append((graph,graph_info))
 
         # exit()
     if not os.path.exists(ntype_file):
