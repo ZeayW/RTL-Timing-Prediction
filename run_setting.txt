@@ -1,0 +1,22 @@
+#1. find an available gpu
+sidle
+
+# 1. get the gpu
+srun -w [gpu_name] -p gpu_24h --gres=gpu:1 --pty bash
+
+# 2. activate the python environment
+activate dgl_3090
+
+#4. download the dataset, and unzip it under the rawdata directory
+mkdir rawdata; cd rawdata; unzip ...
+
+# 3. run the data generation script
+python parser.py --rawdata_path [path of the rawdata] --data_savepath [path to save the generated dataset]
+(an example: python parser.py --rawdata_path ../rawdata/dir_in_level_0 --data_savepath ../datasets/dir_in_level_0)
+
+4. run the training script
+python train.py --data_savepath [path of the generated dataset] --checkpoint [path to save the results]
+(an example: python train.py --data_savepath ../datasets/dir_in_level_0 --checkpoint ../checkpoints/example1)
+
+
+

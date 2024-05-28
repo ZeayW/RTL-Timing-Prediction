@@ -1,0 +1,9 @@
+# 1. ssh to the gateway first (password: wzy971028)
+ssh ziyiwang21@gw.cse.cuhk.edu.hk
+
+# 2. ssh to the server (password: wzy971028)
+ssh linux10
+
+# 3. go to the work directory
+gw3
+
