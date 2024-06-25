@@ -158,6 +158,34 @@ class Parser:
                                 fo2fi[fanout_node].extend(fanin_nodes)
                         else:
                             assert False
+                # deal with add, less than, not equal gate
+                elif 'add' in gate_type.lower() or 'lt' in gate_type.lower() or 'ne' in gate_type.lower():
+                    # get the io wires list
+                    io_wires = sentence[sentence.find('(') + 1:].strip()
+                    io_wires = io_wires.split('),')
+                    io_wires = [p.replace(' ', '') for p in io_wires]
+
+                    io_wires = {p[1:p.find('(')]: p[p.find('(') + 1:].strip().replace(')', '') for p in io_wires}
+                    io_nodes = {p: self.parse_wire(w) for p, w in io_wires.items()}
+                    # get the output nodes, and set their gate type;
+                    fanout_nodes = io_nodes['o']
+                    for n in fanout_nodes:
+                        self.nodes[n]['ntype'] = gate_type
+                        ntype2id[gate_type] = ntype2id.get(gate_type, len(ntype2id))
+                        fo2fi[n] = []
+                    # add the edges between fanin nodes and fanout nodes
+                    for port, fanin_nodes in io_nodes.items():
+                        if port == 'o':
+                            continue
+                        # each output bit is related to all input bits up to its own bit width.
+                        for i, fanout_node in enumerate(fanout_nodes):
+                            related_fanin_nodes = []
+                            for fanin_node in fanin_nodes:
+                                fanin_bit_index = int(
+                                    fanin_node.split('[')[-1].split(']')[0]) if '[' in fanin_node else 0
+                                if fanin_bit_index <= i:
+                                    related_fanin_nodes.append(fanin_node)
+                            fo2fi[fanout_node].extend(related_fanin_nodes)
                 # deal with other one-output gates, e.g., or, and...
                 else:
                     # get the paramater list
