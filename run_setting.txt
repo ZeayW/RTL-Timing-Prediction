@@ -5,7 +5,7 @@ sidle
 srun -w [gpu_name] -p gpu_24h --gres=gpu:1 --pty bash
 
 # 2. activate the python environment
-activate dgl_3090
+conda activate dgl_3090
 
 #4. download the dataset, and unzip it under the rawdata directory
 mkdir rawdata; cd rawdata; unzip ...
