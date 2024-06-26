@@ -158,8 +158,8 @@ class Parser:
                                 fo2fi[fanout_node].extend(fanin_nodes)
                         else:
                             assert False
-                # deal with add, less than, not equal gate
-                elif 'add' in gate_type.lower() or 'lt' in gate_type.lower() or 'ne' in gate_type.lower():
+                # deal with add
+                elif 'add' in gate_type.lower():
                     # get the io wires list
                     io_wires = sentence[sentence.find('(') + 1:].strip()
                     io_wires = io_wires.split('),')
@@ -186,6 +186,50 @@ class Parser:
                                 if fanin_bit_index <= i:
                                     related_fanin_nodes.append(fanin_node)
                             fo2fi[fanout_node].extend(related_fanin_nodes)
+                # deal with less than
+                elif 'lt' in gate_type.lower():
+                    # get the io wires list
+                    io_wires = sentence[sentence.find('(') + 1:].strip()
+                    io_wires = io_wires.split('),')
+                    io_wires = [p.replace(' ', '') for p in io_wires]
+
+                    io_wires = {p[1:p.find('(')]: p[p.find('(') + 1:].strip().replace(')', '') for p in io_wires}
+                    io_nodes = {p: self.parse_wire(w) for p, w in io_wires.items()}
+                    # get the output nodes, and set their gate type;
+                    fanout_nodes = io_nodes['o']
+                    for n in fanout_nodes:
+                        self.nodes[n]['ntype'] = gate_type
+                        ntype2id[gate_type] = ntype2id.get(gate_type, len(ntype2id))
+                        fo2fi[n] = []
+                    # add the edges between fanin nodes and fanout nodes
+                    for port, fanin_nodes in io_nodes.items():
+                        if port == 'o':
+                            continue
+                        # connect all input bits to each output bit for 'lt' gate
+                        for i, fanout_node in enumerate(fanout_nodes):
+                            fo2fi[fanout_node].extend(fanin_nodes)
+                # deal with not equal
+                elif 'ne' in gate_type.lower():
+                    # get the io wires list
+                    io_wires = sentence[sentence.find('(') + 1:].strip()
+                    io_wires = io_wires.split('),')
+                    io_wires = [p.replace(' ', '') for p in io_wires]
+
+                    io_wires = {p[1:p.find('(')]: p[p.find('(') + 1:].strip().replace(')', '') for p in io_wires}
+                    io_nodes = {p: self.parse_wire(w) for p, w in io_wires.items()}
+                    # get the output nodes, and set their gate type;
+                    fanout_nodes = io_nodes['o']
+                    for n in fanout_nodes:
+                        self.nodes[n]['ntype'] = gate_type
+                        ntype2id[gate_type] = ntype2id.get(gate_type, len(ntype2id))
+                        fo2fi[n] = []
+                    # add the edges between fanin nodes and fanout nodes
+                    for port, fanin_nodes in io_nodes.items():
+                        if port == 'o':
+                            continue
+                        # connect all input bits to each output bit for 'ne' gate
+                        for i, fanout_node in enumerate(fanout_nodes):
+                            fo2fi[fanout_node].extend(fanin_nodes)
                 # deal with other one-output gates, e.g., or, and...
                 else:
                     # get the paramater list
