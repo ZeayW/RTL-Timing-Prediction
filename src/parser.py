@@ -158,7 +158,7 @@ class Parser:
                                 fo2fi[fanout_node].extend(fanin_nodes)
                         else:
                             assert False
-                # deal with add
+                                # deal with add
                 elif 'add' in gate_type.lower():
                     # get the io wires list
                     io_wires = sentence[sentence.find('(') + 1:].strip()
@@ -180,13 +180,15 @@ class Parser:
                         # each output bit is related to all input bits up to its own bit width.
                         for i, fanout_node in enumerate(fanout_nodes):
                             related_fanin_nodes = []
-                            for fanin_node in fanin_nodes:
-                                fanin_bit_index = int(
-                                    fanin_node.split('[')[-1].split(']')[0]) if '[' in fanin_node else 0
-                                if fanin_bit_index <= i:
-                                    related_fanin_nodes.append(fanin_node)
+                            # check fanin_nodes is empty or not
+                            if fanin_nodes:
+                                for fanin_node in fanin_nodes:
+                                    fanin_bit_index = int(
+                                        fanin_node.split('[')[-1].split(']')[0]) if '[' in fanin_node else 0
+                                    if fanin_bit_index <= i:
+                                        related_fanin_nodes.append(fanin_node)
                             fo2fi[fanout_node].extend(related_fanin_nodes)
-                # deal with less than
+                                # deal with less than
                 elif 'lt' in gate_type.lower():
                     # get the io wires list
                     io_wires = sentence[sentence.find('(') + 1:].strip()
@@ -207,7 +209,10 @@ class Parser:
                             continue
                         # connect all input bits to each output bit for 'lt' gate
                         for i, fanout_node in enumerate(fanout_nodes):
-                            fo2fi[fanout_node].extend(fanin_nodes)
+                            # check fanin_nodes is empty or not
+                            if fanin_nodes:
+                                fo2fi[fanout_node].extend(fanin_nodes)
+
                 # deal with not equal
                 elif 'ne' in gate_type.lower():
                     # get the io wires list
@@ -229,7 +234,9 @@ class Parser:
                             continue
                         # connect all input bits to each output bit for 'ne' gate
                         for i, fanout_node in enumerate(fanout_nodes):
-                            fo2fi[fanout_node].extend(fanin_nodes)
+                            # check fanin_nodes is empty or not 
+                            if fanin_nodes:
+                                fo2fi[fanout_node].extend(fanin_nodes)
                 # deal with other one-output gates, e.g., or, and...
                 else:
                     # get the paramater list
