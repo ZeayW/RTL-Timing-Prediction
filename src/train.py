@@ -211,6 +211,7 @@ def train(model):
             for i in range(num_cases):
                 new_sampled_data = []
                 graphs = []
+                base_output = None # _00
                 for data in sampled_data:
 
                     PIs_delay, POs_label = data['delay-label_pairs'][i]
@@ -223,6 +224,10 @@ def train(model):
                     graph.ndata['delay'][graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay,dtype=th.float).unsqueeze(-1)
                     data['graph'] = graph
                     graphs.append(graph)
+                    
+                    if i = 0:
+                        base_output = POs_label # _00
+
                 sampled_graphs = dgl.batch(graphs)
 
                 sampled_graphs = sampled_graphs.to(device)
@@ -234,6 +239,12 @@ def train(model):
                 graphs_info['POs_feat'] = sampled_graphs.ndata['PO_feat'][graphs_info['POs']].to(device)
                 labels_hat = model(sampled_graphs, graphs_info)
                 labels = sampled_graphs.ndata['label'][graphs_info['POs']].to(device)
+
+                # delta _00
+                if base_output is not None:
+                    labels_hat = labels_hat - th.tensor(base_output, dtype=th.float).to(device)
+                    labels = labels - th.tensor(base_output, dtype=th.float).to(device)
+                
                 total_num += len(labels)
                 train_loss = Loss(labels_hat, labels)
 
