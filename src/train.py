@@ -246,6 +246,11 @@ def train(model):
 
                 # delta _00
                 if base_output is not None:
+                    base_output = th.tensor(base_output, dtype=th.float).to(device)
+                    # Adjust the shape of base_output
+                    if base_output.shape != labels_hat.shape:
+                        base_output = base_output.view_as(labels_hat)
+                    
                     labels_hat = labels_hat - th.tensor(base_output, dtype=th.float).to(device)
                     labels = labels - th.tensor(base_output, dtype=th.float).to(device)
                 
