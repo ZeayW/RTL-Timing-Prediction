@@ -193,11 +193,15 @@ def train(model):
 
     cur_time = datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
     num_traindata = len(train_data)
+    total_batches = 100
     for epoch in range(options.num_epoch):
         print('Epoch {} ------------------------------------------------------------'.format(epoch+1))
         total_num,total_loss, total_r2 = 0,0.0,0
 
         for batch, idxs in enumerate(train_idx_loader):
+            if batch >= total_batches: 
+                print(f"Reached the batch limit of {total_batches}, stopping training.")
+                return
             sampled_data = []
 
             idxs = idxs.numpy().tolist()
