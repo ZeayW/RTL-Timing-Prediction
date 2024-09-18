@@ -229,7 +229,7 @@ def train(model):
                     data['graph'] = graph
                     graphs.append(graph)
                     
-                    if i = 0:
+                    if i == 0:
                         base_output = POs_label # _00
 
                 sampled_graphs = dgl.batch(graphs)
