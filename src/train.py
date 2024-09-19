@@ -228,9 +228,13 @@ def train(model):
                 if len(data['POs'])!= len(POs_label):
                     continue
                 graph = data['graph']
+
+                if 'delay' not in graph.ndata:
+                    graph.ndata['delay'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
+
                 graph.ndata['label'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
                 graph.ndata['label'][data['POs']] = th.tensor( POs_label,dtype=th.float).unsqueeze(-1)
-                graph.ndata['delay'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
+                
                 graph.ndata['delay'][graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay,dtype=th.float).unsqueeze(-1)
                 data['graph'] = graph
                 graphs.append(graph)
