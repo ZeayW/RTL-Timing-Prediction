@@ -221,23 +221,19 @@ def train(model):
                     'POs_feat': base_graph.ndata['PO_feat'][base_graph.ndata['is_po'] == 1].to(device)
                 })
 
-            for i in range(1, num_cases):
-                new_sampled_data = []
+            for data in group_data[1:]:
+                graphs = []
 
-                for data in group_data[1:]:
-                    graphs = []
-
-                    PIs_delay, POs_label = data['delay-label_pairs'][i]
-                    if len(data['POs'])!= len(POs_label):
-                        continue
-                    graph = data['graph']
-                    graph.ndata['label'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-                    graph.ndata['label'][data['POs']] = th.tensor( POs_label,dtype=th.float).unsqueeze(-1)
-                    graph.ndata['delay'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-                    graph.ndata['delay'][graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay,dtype=th.float).unsqueeze(-1)
-                    data['graph'] = graph
-                    graphs.append(graph)
-
+                PIs_delay, POs_label = data['delay-label_pairs'][i]
+                if len(data['POs'])!= len(POs_label):
+                    continue
+                graph = data['graph']
+                graph.ndata['label'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
+                graph.ndata['label'][data['POs']] = th.tensor( POs_label,dtype=th.float).unsqueeze(-1)
+                graph.ndata['delay'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
+                graph.ndata['delay'][graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay,dtype=th.float).unsqueeze(-1)
+                data['graph'] = graph
+                graphs.append(graph)
 
                 sampled_graphs = dgl.batch(graphs)
 
