@@ -175,8 +175,8 @@ def test(model,test_data,test_idx_loader):
 def load_group_0_data(train_data):
     group_0_data = {}
     for idx, data in enumerate(train_data):
-        group_num = idx // 100  # 获取组编号
-        if idx % 100 == 0:  # 如果是组中的编号为0的数据集
+        group_num = idx
+        if idx == 0:
             group_0_data[group_num] = data
     return group_0_data
 
@@ -228,7 +228,7 @@ def train(model):
                         continue
                     graph = data['graph']
 
-                    group_num = idx // 100
+                    group_num = idx
                     group_0_output = group_0_data[group_num]['delay-label_pairs'][0][1]
                     output_diff = th.tensor(POs_label, dtype=th.float) - th.tensor(group_0_output, dtype=th.float)
 
