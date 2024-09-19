@@ -193,15 +193,11 @@ def train(model):
 
     cur_time = datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
     num_traindata = len(train_data)
-    total_batches = 100
-    for epoch in range(options.num_epoch):
+    for epoch in range(100):
         print('Epoch {} ------------------------------------------------------------'.format(epoch+1))
         total_num,total_loss, total_r2 = 0,0.0,0
 
         for batch, idxs in enumerate(train_idx_loader):
-            if batch >= total_batches: 
-                print(f"Reached the batch limit of {total_batches}, stopping training.")
-                return
             sampled_data = []
 
             idxs = idxs.numpy().tolist()
@@ -212,11 +208,24 @@ def train(model):
                 shuffle(train_data[idx]['delay-label_pairs'])
                 sampled_data.append(train_data[idx])
 
-            for i in range(num_cases):
+            # _00
+            for group_idx in range(0, len(sampled_data), 100):
+                group_data = sampled_data[group_idx:group_idx + 100]
+                base_data = group_data[0]
+
+                base_graph = base_data['graph']
+                base_graph = base_graph.to(device)
+                base_output_label = model(base_graph, {
+                    'topo': [l.to(device) for l in dgl.topological_nodes_generator(base_graph)],
+                    'POs': (base_graph.ndata['is_po'] == 1).squeeze(-1).to(device),
+                    'POs_feat': base_graph.ndata['PO_feat'][base_graph.ndata['is_po'] == 1].to(device)
+                })
+
+            for i in range(1, num_cases):
                 new_sampled_data = []
-                graphs = []
-                base_output = None # _00
-                for data in sampled_data:
+
+                for data in group_data[1:]:
+                    graphs = []
 
                     PIs_delay, POs_label = data['delay-label_pairs'][i]
                     if len(data['POs'])!= len(POs_label):
@@ -228,9 +237,7 @@ def train(model):
                     graph.ndata['delay'][graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay,dtype=th.float).unsqueeze(-1)
                     data['graph'] = graph
                     graphs.append(graph)
-                    
-                    if i == 0:
-                        base_output = POs_label # _00
+
 
                 sampled_graphs = dgl.batch(graphs)
 
@@ -242,24 +249,16 @@ def train(model):
                 graphs_info['POs'] = (sampled_graphs.ndata['is_po']==1).squeeze(-1).to(device)
                 graphs_info['POs_feat'] = sampled_graphs.ndata['PO_feat'][graphs_info['POs']].to(device)
                 labels_hat = model(sampled_graphs, graphs_info)
+
+                output_label = labels_hat - base_output_label
+
                 labels = sampled_graphs.ndata['label'][graphs_info['POs']].to(device)
-
-                # delta _00
-                if base_output is not None:
-                    base_output = th.tensor(base_output, dtype=th.float).to(device)
-                    # Adjust the shape of base_output
-                    if base_output.shape != labels_hat.shape:
-                        base_output = base_output.view_as(labels_hat)
-                    
-                    labels_hat = labels_hat - th.tensor(base_output, dtype=th.float).to(device)
-                    labels = labels - th.tensor(base_output, dtype=th.float).to(device)
-                
                 total_num += len(labels)
-                train_loss = Loss(labels_hat, labels)
+                train_loss = Loss(output_label, labels)
 
-                train_r2 = R2_score(labels_hat, labels).to(device)
-                train_mape = th.mean(th.abs(labels_hat[labels!=0]-labels[labels!=0])/labels[labels!=0])
-                ratio = labels_hat[labels!=0] / labels[labels!=0]
+                train_r2 = R2_score(output_label, labels).to(device)
+                train_mape = th.mean(th.abs(output_label[labels!=0]-labels[labels!=0])/labels[labels!=0])
+                ratio = output_label[labels!=0] / labels[labels!=0]
                 min_ratio = th.min(ratio)
                 max_ratio = th.max(ratio)
                 if i==num_cases-1: print('{}/{} train_loss:{:.3f}\ttrain_r2:{:.3f}\ttrain_mape:{:.3f}, ratio:{:.2f}-{:.2f}'.format((batch+1)*options.batch_size,num_traindata,train_loss.item(),train_r2.item(),train_mape.item(),min_ratio,max_ratio))
