@@ -172,6 +172,14 @@ def test(model,test_data,test_idx_loader):
         max_ratio = th.max(ratio)
         return test_loss, test_r2,test_mape,min_ratio,max_ratio
 
+def load_group_0_data(train_data):
+    group_0_data = {}
+    for idx, data in enumerate(train_data):
+        group_num = idx // 100  # 获取组编号
+        if idx % 100 == 0:  # 如果是组中的编号为0的数据集
+            group_0_data[group_num] = data
+    return group_0_data
+
 def train(model):
     print(options)
     th.multiprocessing.set_sharing_strategy('file_system')
@@ -181,6 +189,8 @@ def train(model):
     test_data,test_idx_loader = load_data('test')
     # train_loader = DataLoader(list(range(len(data_train))), batch_size=options.batch_size, shuffle=True, drop_last=False)
     print("Data successfully loaded")
+
+    group_0_data = load_group_0_data(train_data)
 
     # set the optimizer
     optim = th.optim.Adam(
@@ -208,37 +218,26 @@ def train(model):
                 shuffle(train_data[idx]['delay-label_pairs'])
                 sampled_data.append(train_data[idx])
 
-            # _00
-            for group_idx in range(0, len(sampled_data), 100):
-                group_data = sampled_data[group_idx:group_idx + 100]
-                base_data = group_data[0]
-
-                base_graph = base_data['graph']
-                base_graph = base_graph.to(device)
-                base_output_label = model(base_graph, {
-                    'topo': [l.to(device) for l in dgl.topological_nodes_generator(base_graph)],
-                    'POs': (base_graph.ndata['is_po'] == 1).squeeze(-1).to(device),
-                    'POs_feat': base_graph.ndata['PO_feat'][base_graph.ndata['is_po'] == 1].to(device)
-                })
-
-            for data in group_data[1:]:
+            for i in range(num_cases):
+                new_sampled_data = []
                 graphs = []
+                for data in sampled_data:
 
-                PIs_delay, POs_label = data['delay-label_pairs'][i]
-                if len(data['POs'])!= len(POs_label):
-                    continue
-                graph = data['graph']
+                    PIs_delay, POs_label = data['delay-label_pairs'][i]
+                    if len(data['POs'])!= len(POs_label):
+                        continue
+                    graph = data['graph']
 
-                if 'delay' not in graph.ndata:
+                    group_num = idx // 100
+                    group_0_output = group_0_data[group_num]['delay-label_pairs'][0][1]
+                    output_diff = th.tensor(POs_label, dtype=th.float) - th.tensor(group_0_output, dtype=th.float)
+
+                    graph.ndata['label'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
+                    graph.ndata['label'][data['POs']] = output_diff.unsqueeze(-1)
                     graph.ndata['delay'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-
-                graph.ndata['label'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-                graph.ndata['label'][data['POs']] = th.tensor( POs_label,dtype=th.float).unsqueeze(-1)
-                
-                graph.ndata['delay'][graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay,dtype=th.float).unsqueeze(-1)
-                data['graph'] = graph
-                graphs.append(graph)
-
+                    graph.ndata['delay'][graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay,dtype=th.float).unsqueeze(-1)
+                    data['graph'] = graph
+                    graphs.append(graph)
                 sampled_graphs = dgl.batch(graphs)
 
                 sampled_graphs = sampled_graphs.to(device)
@@ -249,16 +248,13 @@ def train(model):
                 graphs_info['POs'] = (sampled_graphs.ndata['is_po']==1).squeeze(-1).to(device)
                 graphs_info['POs_feat'] = sampled_graphs.ndata['PO_feat'][graphs_info['POs']].to(device)
                 labels_hat = model(sampled_graphs, graphs_info)
-
-                output_label = labels_hat - base_output_label
-
                 labels = sampled_graphs.ndata['label'][graphs_info['POs']].to(device)
                 total_num += len(labels)
-                train_loss = Loss(output_label, labels)
+                train_loss = Loss(labels_hat, labels)
 
-                train_r2 = R2_score(output_label, labels).to(device)
-                train_mape = th.mean(th.abs(output_label[labels!=0]-labels[labels!=0])/labels[labels!=0])
-                ratio = output_label[labels!=0] / labels[labels!=0]
+                train_r2 = R2_score(labels_hat, labels).to(device)
+                train_mape = th.mean(th.abs(labels_hat[labels!=0]-labels[labels!=0])/labels[labels!=0])
+                ratio = labels_hat[labels!=0] / labels[labels!=0]
                 min_ratio = th.min(ratio)
                 max_ratio = th.max(ratio)
                 if i==num_cases-1: print('{}/{} train_loss:{:.3f}\ttrain_r2:{:.3f}\ttrain_mape:{:.3f}, ratio:{:.2f}-{:.2f}'.format((batch+1)*options.batch_size,num_traindata,train_loss.item(),train_r2.item(),train_mape.item(),min_ratio,max_ratio))
