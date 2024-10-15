@@ -147,6 +147,7 @@ class Parser:
                     wire_type = wire_type.replace(' ','')
                     self.nodes[node_name] = {'ntype':wire_type,'is_po':wire_type=='output','is_module':0}
                     self.wires_width[node_name] = (0,0)
+
                 # e.g., wire [4:0] do_0_b;
                 else:
                     sentence = sentence.strip()
@@ -161,6 +162,7 @@ class Parser:
                     for i in range(int(low_bit),int(high_bit)+1):
                         node_name = '{}[{}]'.format(wire_name,i)
                         self.nodes[node_name] = {'ntype': wire_type,'is_po':wire_type=='output','is_module':0}
+
 
 
 
@@ -330,8 +332,9 @@ class Parser:
         node2nid = {}
         nid2node = {}
         nodes_type,nodes_delay,nodes_name,POs, POs_label = [],[],[],[],[]
-        POs_nickname = {}
+        nodes_nickname = []
         POs_name = []
+        PIs_name = []
         is_po,is_pi= [],[]
 
 
@@ -345,17 +348,19 @@ class Parser:
             nid = len(node2nid)
             node2nid[node] = nid
             nid2node[node2nid[node]] = node
-
+            nodes_name.append((node,node_info.get('nickname',None)))
             nodes_type.append(node_info['ntype'])
+            is_module.append(node_info['is_module'])
             # set the PI delay
             #nodes_delay.append(self.pi_delay.get(node,0))
             if self.pi_delay.get(node,None) is not None:
                 is_pi.append(1)
+                PIs_name.append(node)
             else:
                 is_pi.append(0)
+
             # set the PO label
             if node_info['is_po']:
-                is_po.append(1)
                 nickname = node_info.get('nickname',None)
                 # print(node,nickname)
                 if nickname is not None:
@@ -363,11 +368,13 @@ class Parser:
                 if self.po_labels.get(node,None) is not None:
                     POs_name.append(node)
                     POs.append(nid)
+                    is_po.append(1)
+                else:
+                    is_po.append(0)
                     #POs_label.append(self.po_labels[node])
             else:
                 is_po.append(0)
-            nodes_name.append(node)
-            is_module.append(node_info['is_module'])
+
         # print({nodes_name[i]:nodes_delay[i] for i in range(len(nodes_name))})
 
         # get the src_node list and dst_node lsit
@@ -396,6 +403,7 @@ class Parser:
         print(graph.number_of_nodes('node'),graph.number_of_edges('intra_module'),graph.number_of_edges('intra_gate'))
         topo = gen_topo(graph)
 
+        #print(PIs_name,len(PIs_name))
 
         # graph = dgl.graph((th.tensor(src_nodes[0]),th.tensor(dst_nodes[0])))
         # topo = dgl.topological_nodes_generator(graph)
@@ -412,17 +420,21 @@ class Parser:
         graph_info['topo'] = topo
         graph_info['ntype'] = nodes_type
         graph_info['nodes_name'] = nodes_name
-        graph_info['nodes_nickname'] = nodes_name
         graph_info['POs'] = POs
         #graph_info['POs_label'] = th.tensor(POs_label,dtype=th.float)
         graph_info['POs_level_max'] = th.tensor(POs_level,dtype=th.float)
+        graph_info['POs_name'] = POs_name
+        graph_info['PIs_name'] = PIs_name
         graph_info['case_name'] = self.case_name
         graph_info['design_name'] = self.design_name
         graph.ndata['is_po'] = th.tensor(is_po)
         graph.ndata['is_pi'] = th.tensor(is_pi)
+
         graph.ndata['is_module'] = th.tensor(is_module)
         graph.edges['intra_module'].data['bit_position'] = th.tensor(bit_position,dtype=th.float)
 
+
+        #print(th.sum(graph.ndata['is_po']), len(self.po_labels))
         # graph.ndata['is_module'] = th.tensor(is_module)
         #graph.ndata['delay'] = th.tensor(nodes_delay,dtype=th.float).reshape((len(nodes_delay),1))
 
@@ -538,7 +550,7 @@ def main():
 
 
         for design_name, case_indexs in design2idx.items():
-            #if '00010' not in design_name: continue
+            #if '370' not in design_name: continue
             #if '399' not in design_name:
             #    print(design_name)
             #    continue
@@ -574,23 +586,22 @@ def main():
                 #print('\t',po_labels)
 
 
+                temp_nodenames = []
+                cur_pis = []
                 PIs_delay, POs_label,POs = [], [],[]
                 if pi_delay is None:
                     continue
-                for nid,node in enumerate(graph_info['nodes_name']):
-                    if pi_delay.get(node,None) is not None:
-                        PIs_delay.append(pi_delay[node])
-                    #nodes_delay.append(pi_delay.get(node, 0))
 
-                    if po_labels.get(node, None) is not None:
-                        POs_label.append(po_labels[node])
-                        POs.append(node)
+                for node in graph_info["PIs_name"]:
+                    PIs_delay.append(pi_delay[node])
 
-                delays = th.zeros((graph.number_of_nodes(),1),dtype=th.float)
-                #delays[graph.ndata['is_pi']==1] = th.tensor(PIs_delay,dtype=th.float).reshape(len(PIs_delay),1)
+                for node in graph_info['POs_name']:
+                    POs_label.append(po_labels[node])
 
+                #print(idx,len(PIs_delay),th.sum(graph.ndata['is_pi']).item(),len(POs_label),th.sum(graph.ndata['is_po']).item())
+                assert len(PIs_delay) == th.sum(graph.ndata['is_pi']).item() and len(POs_label) == th.sum(graph.ndata['is_po']).item()
                 graph_info['delay-label_pairs'].append((PIs_delay, POs_label))
-                graph_info['POs_name'] = POs
+
 
 
             POs_base_label = []

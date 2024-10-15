@@ -26,6 +26,7 @@ class TimeConv(nn.Module):
     def __init__(self,
                  infeat_dim,
                  hidden_dim,
+                 attn_choice=0,
                  flag_homo=False,
                  flag_global=True,
                  flag_attn=False):
@@ -33,6 +34,7 @@ class TimeConv(nn.Module):
         self.flag_global = flag_global
         self.flag_attn = flag_attn
         self.hidden_dim = hidden_dim
+        self.attn_choice= attn_choice
         self.mlp_pi = MLP(1, int(hidden_dim / 2), hidden_dim)
         self.mlp_agg = MLP(hidden_dim , int(hidden_dim/2), hidden_dim)
         if flag_homo:
@@ -44,9 +46,15 @@ class TimeConv(nn.Module):
         if flag_global:
             self.mlp_global = MLP(1, int(hidden_dim / 2), hidden_dim)
         if flag_attn:
-            self.mlp_attn = MLP(infeat_dim+hidden_dim, int(hidden_dim / 2), hidden_dim)
-            self.attention_vector = nn.Parameter(th.randn(hidden_dim+1,1),requires_grad=True)
-            self.mlp_key = MLP(1, int(hidden_dim / 2), hidden_dim)
+            atnn_dim = hidden_dim
+            if self.attn_choice in [4,6]:
+                self.mlp_pos = MLP(1, 32, 32)
+                atnn_dim += 32
+            if self.attn_choice in [5,6]:
+                #self.mlp_type = MLP(1, 32, 32)
+                atnn_dim += hidden_dim
+            self.attention_vector = nn.Parameter(th.randn(atnn_dim,1),requires_grad=True)
+
         out_dim = hidden_dim*2 if flag_global else hidden_dim
         self.mlp_out = MLP(out_dim,hidden_dim,1)
         self.activation = nn.ReLU()
@@ -94,7 +102,22 @@ class TimeConv(nn.Module):
         #z = self.mlp_attn(th.cat((edges.src['h'],edges.dst['feat']),dim=1))
         #z = th.cat((edges.src['h'],edges.dst['feat']),dim=1)
         #z = edges.src['h']
-        z = th.cat((edges.data['bit_position'].unsqueeze(1),edges.src['h']),dim=1)
+        if self.attn_choice==0:
+            z = edges.src['h']
+        elif self.attn_choice==1:
+            z = th.cat((edges.data['bit_position'].unsqueeze(1), edges.src['h']), dim=1)
+        elif self.attn_choice==2:
+            z = th.cat((edges.dst['feat'],edges.src['h']), dim=1)
+        elif self.attn_choice==3:
+            th.cat((edges.dst['feat'],edges.data['bit_position'].unsqueeze(1), edges.src['h']), dim=1)
+        elif self.attn_choice==4:
+            z = th.cat((self.mlp_pos(edges.data['bit_position'].unsqueeze(1)), edges.src['h']), dim=1)
+        elif self.attn_choice==5:
+            th.cat((self.mlp_self(edges.dst['feat']),edges.src['h']), dim=1)
+        elif self.attn_choice==6:
+            th.cat((self.mlp_self(edges.dst['feat']),self.mlp_pos(edges.data['bit_position']).unsqueeze(1), edges.src['h']), dim=1)
+        #z = th.cat((edges.data['bit_position'].unsqueeze(1),edges.src['h']),dim=1)
+        #z = edges.src['h']
         #z = self.mlp_key(edges.data['bit_position'].unsqueeze(1))
         e = th.matmul(z,self.attention_vector)
 
@@ -149,14 +172,16 @@ class TimeConv(nn.Module):
                         nodes_gate = nodes[isGate_mask]
                         nodes_module = nodes[isModule_mask]
                         if len(nodes_gate)!=0: graph.pull(nodes_gate, fn.copy_src('h', 'm'), fn.mean('m', 'neigh'), self.nodes_func_gate, etype='intra_gate')
-                        if len(nodes_module)!=0: graph.pull(nodes_module, fn.copy_src('h', 'm'), fn.mean('m', 'neigh'), self.nodes_func_module, etype='intra_module')
+                        if len(nodes_module)!=0: graph.pull(nodes_module, fn.copy_src('h', 'm'), fn.max('m', 'neigh'), self.nodes_func_module, etype='intra_module')
                     else:
                         graph.pull(nodes, fn.copy_src('h', 'm'), fn.mean('m', 'neigh'), self.nodes_func)
 
 
             h_gnn = graph.ndata['h'][PO_mask]
+
             if self.flag_global:
                 h_global = self.mlp_global(PO_feat)
+
                 h = th.cat([h_gnn,h_global],dim=1)
             else:
                 h = h_gnn

@@ -86,18 +86,18 @@ def load_data(usage):
 
         graph_info['POs_feat'] = graph_info['POs_level_max'].unsqueeze(-1)
         graph.ndata['h'] = th.ones((graph.number_of_nodes(), options.hidden_dim), dtype=th.float)
-        graph.ndata['is_po'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-        graph.ndata['is_po'][graph_info['POs']] = 1
+        # graph.ndata['is_po'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
+        # graph.ndata['is_po'][graph_info['POs']] = 1
         #graph.ndata['label'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
 
         #graph.ndata['label'][graph_info['POs']] = th.tensor(graph_info['delay-label_pairs'][0][1],dtype=th.float).unsqueeze(-1)
         graph.ndata['PO_feat'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-        graph.ndata['PO_feat'][graph_info['POs']] = graph_info['POs_feat']
+        graph.ndata['PO_feat'][graph.ndata['is_po']==1] = graph_info['POs_feat']
 
 
         # graph.ndata['delay'] = th.zeros((graph.number_of_nodes(),1),dtype=th.float)
         if len(graph_info['delay-label_pairs'][0][0])!= len(graph.ndata['is_pi'][graph.ndata['is_pi'] == 1]):
-            print(graph_info['design_name'])
+            print('skip',graph_info['design_name'])
             continue
 
         PIs = list(th.tensor(range(graph.number_of_nodes()))[graph.ndata['is_pi'] == 1])
@@ -158,6 +158,7 @@ def init_model(options):
     model = TimeConv(
             infeat_dim=len(ntype2id),
             hidden_dim=options.hidden_dim,
+            attn_choice=options.attn_choice,
             flag_homo=options.flag_homo,
             flag_global=options.flag_global,
             flag_attn=options.flag_attn
@@ -209,7 +210,7 @@ def test(model,test_data,test_idx_loader):
                         continue
                     graph = data['graph']
                     graph.ndata['label'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-                    graph.ndata['label'][graph.ndata['is_po'] == 1] = th.tensor(POs_label, dtype=th.float)
+                    graph.ndata['label'][graph.ndata['is_po'] == 1] = th.tensor(POs_label, dtype=th.float).unsqueeze(-1)
                     graph.ndata['delay'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
                     graph.ndata['delay'][graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay, dtype=th.float)[data['PI_mask']].unsqueeze(-1)
 
@@ -225,7 +226,7 @@ def test(model,test_data,test_idx_loader):
                 graphs_info['topo'] = [l.to(device) for l in topo_levels]
                 # graphs_info['POs_feat'] = POs_feat.to(device)
                 graphs_info['POs'] = (sampled_graphs.ndata['is_po']==1).squeeze(-1).to(device)
-                POs_topolevel = sampled_graphs.ndata['PO_feat'][sampled_graphs.ndata['is_po'] == 1].unsqueeze(-1).to(device)
+                POs_topolevel = sampled_graphs.ndata['PO_feat'][sampled_graphs.ndata['is_po'] == 1].to(device)
 
                 #graphs_info['POs_feat'] = th.cat((POs_topolevel,POs_propdelay),dim=1)
                 graphs_info['POs_feat'] = POs_topolevel
@@ -304,7 +305,7 @@ def train(model):
                         continue
                     graph = data['graph']
                     graph.ndata['label'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-                    graph.ndata['label'][graph.ndata['is_po'] == 1] = th.tensor( POs_label,dtype=th.float)
+                    graph.ndata['label'][graph.ndata['is_po'] == 1] = th.tensor( POs_label,dtype=th.float).unsqueeze(-1)
                     graph.ndata['delay'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
                     graph.ndata['delay'][graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay,dtype=th.float)[data['PI_mask']].unsqueeze(-1)
                     #print(POs_prop_delay)
@@ -322,8 +323,9 @@ def train(model):
                 graphs_info['topo'] = [l.to(device) for l in topo_levels]
                 # graphs_info['POs_feat'] = POs_feat.to(device)
                 graphs_info['POs'] = (sampled_graphs.ndata['is_po']==1).squeeze(-1).to(device)
-                POs_topolevel = sampled_graphs.ndata['PO_feat'][sampled_graphs.ndata['is_po'] == 1].unsqueeze(-1).to(device)
+                POs_topolevel = sampled_graphs.ndata['PO_feat'][sampled_graphs.ndata['is_po'] == 1].to(device)
 
+                #print(len(graphs_info['POs']),len(sampled_graphs.ndata['PO_feat'][sampled_graphs.ndata['is_po'] == 1]))
                 #graphs_info['POs_feat'] = th.cat((POs_topolevel, POs_propdelay), dim=1)
                 graphs_info['POs_feat'] = POs_topolevel
                 #graphs_info['POs_feat'] = sampled_graphs.ndata['PO_feat'][graphs_info['POs']].to(device)
