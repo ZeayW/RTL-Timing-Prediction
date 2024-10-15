@@ -47,6 +47,10 @@ class TimeConv(nn.Module):
             self.mlp_global = MLP(1, int(hidden_dim / 2), hidden_dim)
         if flag_attn:
             atnn_dim = hidden_dim
+            if self.attn_choice in [1,3]:
+                atnn_dim += 1
+            if self.attn_choice in [2,3]:
+                atnn_dim += infeat_dim
             if self.attn_choice in [4,6]:
                 self.mlp_pos = MLP(1, 32, 32)
                 atnn_dim += 32
@@ -109,13 +113,13 @@ class TimeConv(nn.Module):
         elif self.attn_choice==2:
             z = th.cat((edges.dst['feat'],edges.src['h']), dim=1)
         elif self.attn_choice==3:
-            th.cat((edges.dst['feat'],edges.data['bit_position'].unsqueeze(1), edges.src['h']), dim=1)
+            z= th.cat((edges.dst['feat'],edges.data['bit_position'].unsqueeze(1), edges.src['h']), dim=1)
         elif self.attn_choice==4:
             z = th.cat((self.mlp_pos(edges.data['bit_position'].unsqueeze(1)), edges.src['h']), dim=1)
         elif self.attn_choice==5:
-            th.cat((self.mlp_self(edges.dst['feat']),edges.src['h']), dim=1)
+            z = th.cat((self.mlp_self(edges.dst['feat']),edges.src['h']), dim=1)
         elif self.attn_choice==6:
-            th.cat((self.mlp_self(edges.dst['feat']),self.mlp_pos(edges.data['bit_position']).unsqueeze(1), edges.src['h']), dim=1)
+            z = th.cat((self.mlp_self(edges.dst['feat']),self.mlp_pos(edges.data['bit_position']).unsqueeze(1), edges.src['h']), dim=1)
         #z = th.cat((edges.data['bit_position'].unsqueeze(1),edges.src['h']),dim=1)
         #z = edges.src['h']
         #z = self.mlp_key(edges.data['bit_position'].unsqueeze(1))
