@@ -16,34 +16,40 @@ from torchmetrics import R2Score
 import dgl
 import tee
 
-class MyLoader(th.utils.data.Dataset):
-    def __init__(self, data):
-        self.data = data
 
-    def __getitem__(self, item):
-        return self.data[item]
-
-    def __len__(self):
-        return len(self.data)
-
-class MyDataset(Dataset):
-    def __init__(self, data):
-        self.data = data
-
-    def __getitem__(self, item):
-        return self.data[item]
-
-    def __len__(self):
-        return len(self.data)
 
 options = get_options()
 device = th.device("cuda:" + str(options.gpu) if th.cuda.is_available() else "cpu")
 R2_score = R2Score().to(device)
 Loss = nn.MSELoss()
 
+delay_prop = DelayProp()
+
 #ntype2id =  {'input': 0, "1'b0": 1, "1'b1": 2, 'add': 3, 'decoder': 4, 'and': 5, 'xor': 6, 'not': 7, 'or': 8, 'xnor': 9, 'encoder': 10, 'eq': 11, 'lt': 12, 'ne': 13, 'mux': 14}
 with open(os.path.join(options.data_savepath, 'ntype2id.pkl'), 'rb') as f:
     ntype2id = pickle.load(f)
+
+def is_heter(graph):
+    return len(graph._etypes)>1 or len(graph._ntypes)>1
+
+def heter2homo(graph):
+    src_module, dst_module = graph.edges(etype='intra_module', form='uv')
+    src_gate, dst_gate = graph.edges(etype='intra_gate', form='uv')
+    homo_g = dgl.graph((th.cat([src_module, src_gate]), th.cat([dst_module, dst_gate])))
+
+    for key, data in graph.ndata.items():
+        homo_g.ndata[key] = graph.ndata[key]
+
+    return homo_g
+
+def gen_topo(graph):
+    if is_heter(graph):
+        g = heter2homo(graph)
+        topo = dgl.topological_nodes_generator(g)
+    else:
+        topo = dgl.topological_nodes_generator(graph)
+    return topo
+
 
 def load_data(usage):
     assert usage in ['train','val','test']
@@ -56,9 +62,28 @@ def load_data(usage):
 
     with open(data_file, 'rb') as f:
         data = pickle.load(f)
+    if options.flag_filter:
+        with open(os.path.join(data_path,'delay_info_2.pkl'),'rb') as f:
+            delay_info  = pickle.load(f)
+
+        design_critical_nodes = {}
+        for case, (_,POs_criticalpath,_,_) in delay_info.items():
+            design_name,case_idx = case.split('_')
+            design_critical_nodes[design_name] = design_critical_nodes.get(design_name,set())
+
+            for path in POs_criticalpath:
+                for nodes in path.values():
+                    for n in nodes:
+                        design_critical_nodes[design_name].add(n)
 
     loaded_data = []
-    for graph, graph_info in data:
+    for  graph,graph_info in data:
+        name2nid = {graph_info['nodes_name'][i]:i for i in range(len(graph_info['nodes_name']))}
+
+
+        # graph = heter2homo(graph)
+
+
         graph_info['POs_feat'] = graph_info['POs_level_max'].unsqueeze(-1)
         graph.ndata['h'] = th.ones((graph.number_of_nodes(), options.hidden_dim), dtype=th.float)
         graph.ndata['is_po'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
@@ -68,10 +93,33 @@ def load_data(usage):
         #graph.ndata['label'][graph_info['POs']] = th.tensor(graph_info['delay-label_pairs'][0][1],dtype=th.float).unsqueeze(-1)
         graph.ndata['PO_feat'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
         graph.ndata['PO_feat'][graph_info['POs']] = graph_info['POs_feat']
+
+
         # graph.ndata['delay'] = th.zeros((graph.number_of_nodes(),1),dtype=th.float)
         if len(graph_info['delay-label_pairs'][0][0])!= len(graph.ndata['is_pi'][graph.ndata['is_pi'] == 1]):
             print(graph_info['design_name'])
             continue
+
+        PIs = list(th.tensor(range(graph.number_of_nodes()))[graph.ndata['is_pi'] == 1])
+        design_name = graph_info['design_name'].split('_')[-1]
+
+        if options.flag_filter:
+            critical_nodes = design_critical_nodes[design_name]
+            critical_nodes = list(critical_nodes)
+            critical_nodes = [name2nid[n] for n in critical_nodes]
+            critical_nodes.extend(graph_info['POs'])
+            PI_mask = []
+            for j,pi in enumerate(PIs):
+                if pi in critical_nodes:
+                    PI_mask.append(j)
+            non_critical_nodes = list(set(range(graph.number_of_nodes())) - set(critical_nodes))
+
+            graph.remove_nodes(non_critical_nodes)
+        else:
+            PI_mask = list(range(len(PIs)))
+        # print(graph.ndata['is_po'].numpy().tolist())
+        # exit()
+        #print(graph.number_of_nodes(), len(critical_nodes))
 
         #graph.ndata['delay'][graph.ndata['is_pi'] == 1] = th.tensor(graph_info['delay-label_pairs'][0][0], dtype=th.float).unsqueeze(-1)
 
@@ -80,12 +128,16 @@ def load_data(usage):
         #     ntype_onehot[i][ntype2id[type]] = 1
         # graph.ndata['feat'] = ntype_onehot
         graph_info['graph'] = graph
+        graph_info['PI_mask'] = PI_mask
         loaded_data.append(graph_info)
+        # if len(loaded_data)>5:
+        #     break
 
     #loaded_data = loaded_data[:int(len(loaded_data)/10)]
     # batch_size = options.batch_size if usage=='train' else len(loaded_data)
     batch_size = options.batch_size
-    drop_last = True if usage == 'train' else False
+    #drop_last = True if usage == 'train' else False
+    drop_last = False
     sampler = SubsetRandomSampler(th.arange(len(loaded_data)))
     idx_loader = DataLoader([i for i in range(len(loaded_data))], sampler=sampler, batch_size=batch_size,
                               drop_last=drop_last)
@@ -105,10 +157,18 @@ def load_data(usage):
 def init_model(options):
     model = TimeConv(
             infeat_dim=len(ntype2id),
-            hidden_dim=options.hidden_dim
+            hidden_dim=options.hidden_dim,
+            flag_homo=options.flag_homo,
+            flag_global=options.flag_global,
+            flag_attn=options.flag_attn
         ).to(device)
+    # model_base = TimeConv(
+    #     infeat_dim=len(ntype2id),
+    #     hidden_dim=options.hidden_dim
+    # ).to(device)
     print("creating model:")
     print(model)
+
     return model
 
 
@@ -131,30 +191,45 @@ def test(model,test_data,test_idx_loader):
                 data = test_data[idx]
                 num_cases = min(num_cases,len(data['delay-label_pairs']))
                 sampled_data.append(test_data[idx])
-
+            #print('test num_cases', num_cases)
+            if options.target_base: num_cases = 1
             for i in range(num_cases):
                 new_sampled_data = []
                 graphs = []
                 for data in sampled_data:
     
                     PIs_delay, POs_label = data['delay-label_pairs'][i]
+                    if options.target_base:
+                        POs_label = data['base_po_labels']
+
+
+                    # for j in range(len(POs_label)):
+                    #     POs_label[j] += data['base_po_labels'][j]
                     if len(data['POs']) != len(POs_label):
                         continue
                     graph = data['graph']
                     graph.ndata['label'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-                    graph.ndata['label'][data['POs']] = th.tensor(POs_label, dtype=th.float).unsqueeze(-1)
+                    graph.ndata['label'][graph.ndata['is_po'] == 1] = th.tensor(POs_label, dtype=th.float)
                     graph.ndata['delay'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-                    graph.ndata['delay'][graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay, dtype=th.float).unsqueeze(-1)
+                    graph.ndata['delay'][graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay, dtype=th.float)[data['PI_mask']].unsqueeze(-1)
+
                     data['graph'] = graph
                     graphs.append(graph)
                 sampled_graphs = dgl.batch(graphs)
                 sampled_graphs = sampled_graphs.to(device)
                 graphs_info = {}
-                topo_levels = dgl.topological_nodes_generator(sampled_graphs)
+
+                topo_levels = gen_topo(sampled_graphs)
+
+                graphs_info['is_heter'] = is_heter(sampled_graphs)
                 graphs_info['topo'] = [l.to(device) for l in topo_levels]
                 # graphs_info['POs_feat'] = POs_feat.to(device)
                 graphs_info['POs'] = (sampled_graphs.ndata['is_po']==1).squeeze(-1).to(device)
-                graphs_info['POs_feat'] = sampled_graphs.ndata['PO_feat'][graphs_info['POs']].to(device)
+                POs_topolevel = sampled_graphs.ndata['PO_feat'][sampled_graphs.ndata['is_po'] == 1].unsqueeze(-1).to(device)
+
+                #graphs_info['POs_feat'] = th.cat((POs_topolevel,POs_propdelay),dim=1)
+                graphs_info['POs_feat'] = POs_topolevel
+
                 cur_labels_hat = model(sampled_graphs, graphs_info)
                 cur_labels = sampled_graphs.ndata['label'][graphs_info['POs']].to(device)
                 if labels_hat is None:
@@ -172,14 +247,6 @@ def test(model,test_data,test_idx_loader):
         max_ratio = th.max(ratio)
         return test_loss, test_r2,test_mape,min_ratio,max_ratio
 
-def load_group_0_data(train_data):
-    group_0_data = {}
-    for idx, data in enumerate(train_data):
-        group_num = idx
-        if idx == 0:
-            group_0_data[group_num] = data
-    return group_0_data
-
 def train(model):
     print(options)
     th.multiprocessing.set_sharing_strategy('file_system')
@@ -189,8 +256,6 @@ def train(model):
     test_data,test_idx_loader = load_data('test')
     # train_loader = DataLoader(list(range(len(data_train))), batch_size=options.batch_size, shuffle=True, drop_last=False)
     print("Data successfully loaded")
-
-    group_0_data = load_group_0_data(train_data)
 
     # set the optimizer
     optim = th.optim.Adam(
@@ -203,7 +268,7 @@ def train(model):
 
     cur_time = datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
     num_traindata = len(train_data)
-    for epoch in range(100):
+    for epoch in range(options.num_epoch):
         print('Epoch {} ------------------------------------------------------------'.format(epoch+1))
         total_num,total_loss, total_r2 = 0,0.0,0
 
@@ -218,37 +283,55 @@ def train(model):
                 shuffle(train_data[idx]['delay-label_pairs'])
                 sampled_data.append(train_data[idx])
 
+            if options.target_base: num_cases = 1
+
+            #print('num_cases',num_cases)
             for i in range(num_cases):
+
                 new_sampled_data = []
                 graphs = []
                 for data in sampled_data:
 
                     PIs_delay, POs_label = data['delay-label_pairs'][i]
+                    if options.target_base:
+                        POs_label =  data['base_po_labels']
+
+                    # for j in range(len(POs_label)):
+                    #     POs_label[j] += data['base_po_labels'][j]
+
+
                     if len(data['POs'])!= len(POs_label):
                         continue
                     graph = data['graph']
-
-                    group_num = idx
-                    group_0_output = group_0_data[group_num]['delay-label_pairs'][0][1]
-                    output_diff = th.tensor(POs_label, dtype=th.float) - th.tensor(group_0_output, dtype=th.float)
-
                     graph.ndata['label'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-                    graph.ndata['label'][data['POs']] = output_diff.unsqueeze(-1)
+                    graph.ndata['label'][graph.ndata['is_po'] == 1] = th.tensor( POs_label,dtype=th.float)
                     graph.ndata['delay'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-                    graph.ndata['delay'][graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay,dtype=th.float).unsqueeze(-1)
+                    graph.ndata['delay'][graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay,dtype=th.float)[data['PI_mask']].unsqueeze(-1)
+                    #print(POs_prop_delay)
+
                     data['graph'] = graph
                     graphs.append(graph)
                 sampled_graphs = dgl.batch(graphs)
 
+
                 sampled_graphs = sampled_graphs.to(device)
                 graphs_info = {}
-                topo_levels = dgl.topological_nodes_generator(sampled_graphs)
+                topo_levels = gen_topo(sampled_graphs)
+
+                graphs_info['is_heter'] = is_heter(sampled_graphs)
                 graphs_info['topo'] = [l.to(device) for l in topo_levels]
                 # graphs_info['POs_feat'] = POs_feat.to(device)
                 graphs_info['POs'] = (sampled_graphs.ndata['is_po']==1).squeeze(-1).to(device)
-                graphs_info['POs_feat'] = sampled_graphs.ndata['PO_feat'][graphs_info['POs']].to(device)
+                POs_topolevel = sampled_graphs.ndata['PO_feat'][sampled_graphs.ndata['is_po'] == 1].unsqueeze(-1).to(device)
+
+                #graphs_info['POs_feat'] = th.cat((POs_topolevel, POs_propdelay), dim=1)
+                graphs_info['POs_feat'] = POs_topolevel
+                #graphs_info['POs_feat'] = sampled_graphs.ndata['PO_feat'][graphs_info['POs']].to(device)
                 labels_hat = model(sampled_graphs, graphs_info)
                 labels = sampled_graphs.ndata['label'][graphs_info['POs']].to(device)
+
+
+
                 total_num += len(labels)
                 train_loss = Loss(labels_hat, labels)
 
@@ -270,6 +353,9 @@ def train(model):
         if options.checkpoint:
             save_path = '../checkpoints/{}'.format(options.checkpoint)
             th.save(model.state_dict(), os.path.join(save_path,"{}.pth".format(epoch)))
+            with open(os.path.join(checkpoint_path,'res.txt'),'a') as f:
+                f.write('Epoch {}, val: {:.3f},{:.3f}; test:{:.3f},{:.3f}\n'.format(epoch,val_r2,val_mape,test_r2,test_mape))
+
 
 if __name__ == "__main__":
     seed = random.randint(1, 10000)
@@ -279,12 +365,25 @@ if __name__ == "__main__":
         model_save_path = '../checkpoints/{}/{}.pth'.format(options.checkpoint, options.test_iter)
         assert os.path.exists(model_save_path), 'start_point {} of checkpoint {} does not exist'.\
             format(options.test_iter, options.checkpoint)
+        data_savepath = options.data_savepath
         options = th.load('../checkpoints/{}/options.pkl'.format(options.checkpoint))
+        options.data_savepath = data_savepath
+        options.target_base = False
+        options.flag_filter = False
+        options.flag_homo = True
+
         model = init_model(options)
         model = model.to(device)
         model.load_state_dict(th.load(model_save_path))
-        data_test =  load_data('test')
-        test(model, data_test)
+        test_data,test_idx_loader = load_data('test')
+        test_loss, test_r2,test_mape,test_min_ratio,test_max_ratio = test(model, test_data,test_idx_loader)
+        print(
+            '\ttest: loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(test_loss, test_r2,
+                                                                                                     test_mape,
+                                                                                                     test_min_ratio,
+                                                                                                     test_max_ratio))
+
+
 
 
     elif options.checkpoint:
@@ -294,6 +393,8 @@ if __name__ == "__main__":
         stderr_f = '../checkpoints/{}/stderr.log'.format(options.checkpoint)
         os.makedirs(checkpoint_path)  # exist not ok
         th.save(options, os.path.join(checkpoint_path, 'options.pkl'))
+        with open(os.path.join(checkpoint_path,'res.txt'),'w') as f:
+            pass
         with tee.StdoutTee(stdout_f), tee.StderrTee(stderr_f):
             model = init_model(options)
             model = model.to(device)

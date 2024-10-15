@@ -22,6 +22,44 @@ else:
     }
 
 
+class GraphInfo:
+    def __init__(self,design_name,case_name):
+        self.design_name = design_name
+        self.case_name = case_name
+        self.src_nodes = []
+        self.dst_nodes = []
+        self.node2nid = {}
+        self.nid2node = {}
+        self.nodes_type = []
+        self.nodes_delay = []
+        self.nodes_name = []
+        self.POs = []
+        self.POs_label = []
+        self.POs_name = []
+        self.is_po = []
+        self.is_pi = []
+        self.POs_feat = None
+
+    def get_info(self):
+        return {
+            'design_name':self.design_name,
+            'case_name':self.case_name,
+            "nodes_name":self.nodes_name,
+            'POs':self.POs,
+            'POs_feat':self.POs_feat,
+
+        }
+
+def gen_topo(graph):
+
+    src_module, dst_module = graph.edges(etype='intra_module', form='uv')
+    src_gate, dst_gate = graph.edges(etype='intra_gate', form='uv')
+    g = dgl.graph((th.cat([src_module,src_gate]), th.cat([dst_module,dst_gate])))
+    topo = dgl.topological_nodes_generator(g)
+
+    return topo
+
+
 class Parser:
     def __init__(self,subdir,design_path):
         self.case_name = os.path.split(design_path)[-1]
@@ -82,6 +120,8 @@ class Parser:
                 res = [wire]
             else:
                 res = ["{}[{}]".format(wire, b) for b in range(high_bit, low_bit-1,-1)]
+
+
         return res
 
     def parse_verilog(self):
@@ -132,6 +172,8 @@ class Parser:
                 gate = sentence[:sentence.find('(')]
                 gate_type, gate_name = gate.strip().split(' ')
 
+                fanins_bit_position = {}
+
                 # deal with multiplexer, whose width may be larger than 1
                 if 'mux' in gate_type.lower():
                     gate_type = 'mux'
@@ -171,6 +213,7 @@ class Parser:
                                 fo2fi[fanout_node].extend(fanin_nodes)
                         else:
                             assert False
+                # deal with arithmetic blocks, whose width may be larger than 1
                 elif '.' in sentence:
                     gate_type = gate_type.split('_')[0]
                     io_wires = sentence[sentence.find('(') + 1:].strip()
@@ -180,27 +223,40 @@ class Parser:
                     # print(sentence)
                     # print(io_wires)
                     io_nodes = {p: self.parse_wire(w) for p, w in io_wires.items()}
+
+
+
                     # print(sentence)
                     # print('\t\t',io_wires)
                     # print('\t\t',io_nodes)
                     assert io_wires.get('o', None) is not None
                     fanout_nodes = io_nodes['o']
+                    fanout_nodes.reverse()
+
                     for n in fanout_nodes:
                         if self.nodes.get(n, None) is None and 'open' in n:
                             self.nodes[n] = {'ntype': gate_type, 'is_po': False,'is_module':1}
+
                         else:
                             self.nodes[n]['ntype'] = gate_type
+                            self.nodes[n]['is_module'] = 1
                         ntype2id[gate_type] = ntype2id.get(gate_type, len(ntype2id))
                         fo2fi[n] = []
+
                     # add the edges between fanin nodes and fanout nodes
                     for port, fanin_nodes in io_nodes.items():
+                        for idx,fi in enumerate(fanin_nodes):
+                            fanins_bit_position[fi] = len(fanin_nodes) - idx
+                        fanin_nodes.reverse()
                         if port == 'o':
                             continue
+
                         # for port i0,i1: link fi_i[j...0] with fo[j]
-                        elif port.startswith('i'):
+                        elif port.startswith('i') and len(fanout_nodes)!=1:
+
                             for i, fanout_node in enumerate(fanout_nodes):
-                                fo2fi[fanout_node].extend(fanin_nodes[i:])
-                        # for port sel: link all fi_s with fo[j]
+                                fo2fi[fanout_node].extend(fanin_nodes[:i+1])
+                        # for port sel or one output modules, e.g., eq, lt: link all fi_s with each fo
                         else:
                             for i, fanout_node in enumerate(fanout_nodes):
                                 fo2fi[fanout_node].extend(fanin_nodes)
@@ -209,6 +265,9 @@ class Parser:
                     # for i, fanout_node in enumerate(fanout_nodes):
                     #     print('\t',fanout_node,fo2fi[fanout_node])
                     # print("\n\n")
+                    # print(sentence,fo2fi,fanins_bit_position)
+                    # exit()
+
                     pass
                 # deal with other one-output gates, e.g., or, and...
                 else:
@@ -219,6 +278,7 @@ class Parser:
                     fanout_node = io_wires[0]  # fanout is the first parameter
                     self.nodes[fanout_node]['ntype'] = gate_type
                     fanin_nodes = [self.parse_wire(w)[0] for w in io_wires[1:]]
+
 
                     if 'buf' in gate_type:
                         fanin_node = fanin_nodes[0]
@@ -234,23 +294,30 @@ class Parser:
                 # add the edges from fanins to fanouts
                 for fanout, fanins in fo2fi.items():
                     for fanin in fanins:
+
                         self.edges.append(
-                            (fanin,fanout,{})
+                            (fanin,fanout,{'bit_position':fanins_bit_position.get(fanin,None)})
                         )
-                        # print("\te: {} -> {}".format(fanin, fanout))
+
 
 
 
 
         self.nodes = {n : self.nodes[n] for n in self.nodes.keys() if self.nodes[n]['ntype'] not in ['wire',None]}
 
+        is_linked = {}
         new_edges = []
         for src,dst, e_info in self.edges:
             if buf_o2i.get(src,None) is not None:
                 new_edges.append((buf_o2i[src],dst,e_info))
+                is_linked[buf_o2i[src]] = True
+                is_linked[dst] = True
             else:
                 new_edges.append((src,dst,e_info))
+                is_linked[src] = True
+                is_linked[dst] = True
         self.edges = new_edges
+
 
 
         # print(self.nodes)
@@ -258,7 +325,7 @@ class Parser:
         #     print(e)
 
         # construct the graph
-        src_nodes, dst_nodes = [],[]
+        src_nodes, dst_nodes = [[],[]],[[],[]]
         graph_info = {}
         node2nid = {}
         nid2node = {}
@@ -266,11 +333,15 @@ class Parser:
         POs_nickname = {}
         POs_name = []
         is_po,is_pi= [],[]
+
+
         is_module = []
         # print(self.po_labels)
         # print(self.nodes.get('do_7_b53',None))
         # print(self.nodes.get('do_7_b53[0]',None))
         for node,node_info in self.nodes.items():
+            if is_linked.get(node,None) is None:
+                continue
             nid = len(node2nid)
             node2nid[node] = nid
             nid2node[node2nid[node]] = node
@@ -300,16 +371,37 @@ class Parser:
         # print({nodes_name[i]:nodes_delay[i] for i in range(len(nodes_name))})
 
         # get the src_node list and dst_node lsit
+
+        bit_position = []
         for eid, (src, dst, edict) in enumerate(self.edges):
+            edge_set_idx = is_module[node2nid[dst]]
+
             if node2nid.get(src,None) is not None:
-                src_nodes.append(node2nid[src])
-                dst_nodes.append(node2nid[dst])
+                src_nodes[edge_set_idx].append(node2nid[src])
+                dst_nodes[edge_set_idx].append(node2nid[dst])
+
+                if edge_set_idx==1:
+                    bit_position.append(edict['bit_position'])
+
+                # print(edge_set_idx,node2nid[src],node2nid[dst])
 
         # print(self.nodes)
-        graph = dgl.graph(
-            (src_nodes, dst_nodes), num_nodes=len(node2nid)
+        #print(len(src_nodes[0]),len(src_nodes[1]))
+
+        graph = dgl.heterograph(
+        {('node', 'intra_module', 'node'): (th.tensor(src_nodes[1]), th.tensor(dst_nodes[1])),
+         ('node', 'intra_gate', 'node'): (th.tensor(src_nodes[0]), th.tensor(dst_nodes[0]))
+         }
         )
-        topo = dgl.topological_nodes_generator(graph)
+        print(graph.number_of_nodes('node'),graph.number_of_edges('intra_module'),graph.number_of_edges('intra_gate'))
+        topo = gen_topo(graph)
+
+
+        # graph = dgl.graph((th.tensor(src_nodes[0]),th.tensor(dst_nodes[0])))
+        # topo = dgl.topological_nodes_generator(graph)
+        # print(len(is_po))
+        # print(graph.number_of_nodes())
+
         PO2level = {}
         j = 0
         for l,nodes in enumerate(topo):
@@ -329,36 +421,42 @@ class Parser:
         graph.ndata['is_po'] = th.tensor(is_po)
         graph.ndata['is_pi'] = th.tensor(is_pi)
         graph.ndata['is_module'] = th.tensor(is_module)
+        graph.edges['intra_module'].data['bit_position'] = th.tensor(bit_position,dtype=th.float)
+
         # graph.ndata['is_module'] = th.tensor(is_module)
         #graph.ndata['delay'] = th.tensor(nodes_delay,dtype=th.float).reshape((len(nodes_delay),1))
 
         # print(POs)
         # print(topo)
-        POs_level_min = []     # record the shortest path length from an PI to any PI
-        for po in POs:
-            l = 0
-            # print(po)
-            predecessors = graph.predecessors(po).numpy().tolist()
-            # predecessors_name = [nid2node[n] for n in predecessors]
-            while len(predecessors) !=0:
-                l +=1
-                new_predecessors = []
-                for p in predecessors:
-                    pre_preds = graph.predecessors(p).numpy().tolist()
-                    if len(pre_preds)==0:
-                        break
-                    new_predecessors.extend(pre_preds)
-                # predecessors_name = [nid2node[n] for n in new_predecessors]
-                predecessors = new_predecessors
-                # print('\t', predecessors_name)
-            POs_level_min.append(l)
-        graph_info['POs_level_min'] = th.tensor(POs_level_min,dtype=th.float)
+
+
+
+        # POs_level_min = []     # record the shortest path length from an PI to any PI
+        # for po in POs:
+        #     l = 0
+        #     # print(po)
+        #     predecessors = graph.predecessors(po).numpy().tolist()
+        #     # predecessors_name = [nid2node[n] for n in predecessors]
+        #     while len(predecessors) !=0:
+        #         l +=1
+        #         new_predecessors = []
+        #         for p in predecessors:
+        #             pre_preds = graph.predecessors(p).numpy().tolist()
+        #             if len(pre_preds)==0:
+        #                 break
+        #             new_predecessors.extend(pre_preds)
+        #         # predecessors_name = [nid2node[n] for n in new_predecessors]
+        #         predecessors = new_predecessors
+        #         # print('\t', predecessors_name)
+        #     POs_level_min.append(l)
+        # graph_info['POs_level_min'] = th.tensor(POs_level_min,dtype=th.float)
 
         # print('\t',graph)
         print('\t #node:{}, #edges:{}'.format(graph.number_of_nodes(),graph.number_of_edges()))
         # print('\t',graph_info)
         print('\t POs: max levels={}'.format(POs_level))
-        print('\t      min_levels={}'.format(POs_level_min))
+        #print('\t      min_levels={}'.format(POs_level_min))
+
         return graph, graph_info
 
     def parse(self):
@@ -369,8 +467,24 @@ class Parser:
         return graph,graph_info
 
 
+def find_precessors(graph,graph_info,node):
+
+    node_names = graph_info['nodes_name']
+    pre = list(graph.predecessors(node))
+
+    cur = []
+    print(node_names[node])
+    print([node_names[n] for n in pre])
+    while len(pre)!=0:
+        for nid in pre:
+            cur.extend(graph.predecessors(nid))
+        pre = cur
+        cur = []
+        print([node_names[n] for n in pre])
 
 def parse_golden(file_path):
+
+
 
     with open(file_path, 'r') as f:
         content = f.read()
@@ -403,15 +517,18 @@ def main():
     dataset = []
     num = 0
 
-    for subdir in os.listdir(rawdata_path):
+    for subdir in ['']:
+    #for subdir in os.listdir(rawdata_path):
         subdir_path = os.path.join(rawdata_path,subdir)
         design2idx = {}
         for design in os.listdir(subdir_path):
-            if '00320' in design:
-                continue
+            # if '00320' in design:
+            #     continue
 
             design_name = design[:design.rfind('_')]
+            #print(subdir_path,design)
             design_idx,case_idx = design.split('_')[-2:]
+
             design_idx = int(design_idx)
             # if design_idx>10:
             #     continue
@@ -419,7 +536,20 @@ def main():
             design2idx[design_name] = design2idx.get(design_name,[])
             design2idx[design_name].append(case_idx)
 
+
         for design_name, case_indexs in design2idx.items():
+            #if '00010' not in design_name: continue
+            #if '399' not in design_name:
+            #    print(design_name)
+            #    continue
+            if 0 not in case_indexs:
+                print("skip {}, due to the miss of idx 0".format(design_name))
+
+            base_pi_delay, base_po_labels = parse_golden(os.path.join(subdir_path, '{}_{}'.format(design_name,0),'golden.txt'))
+            for p,d in base_pi_delay.items():
+                assert d == 0, print("base case with non-zero input delay: {} {}".format(p,d))
+
+
             print("Processing {}/{}, #{}".format(subdir, design_name, num))
             design_dir = os.path.join(subdir_path, '{}_{}'.format(design_name,0))
             parser = Parser(subdir, design_dir)
@@ -427,10 +557,23 @@ def main():
             graph, graph_info = parser.parse()
             if graph is None:
                 continue
+
+            case_indexs = sorted(case_indexs)
+
             graph_info['delay-label_pairs'] = []
+            base_labels = {}
             for idx in case_indexs:
+                if idx==0:
+                    continue
                 golden_file_path = os.path.join(subdir_path, '{}_{}'.format(design_name,idx),'golden.txt')
                 pi_delay,po_labels = parse_golden(golden_file_path)
+                #print(design_name,idx,po_labels)
+                if len(po_labels)!=len(base_po_labels):
+                    continue
+                #po_labels = {p: d-base_po_labels[p] for (p,d) in po_labels.items()}
+                #print('\t',po_labels)
+
+
                 PIs_delay, POs_label,POs = [], [],[]
                 if pi_delay is None:
                     continue
@@ -441,12 +584,23 @@ def main():
 
                     if po_labels.get(node, None) is not None:
                         POs_label.append(po_labels[node])
+                        POs.append(node)
 
                 delays = th.zeros((graph.number_of_nodes(),1),dtype=th.float)
                 #delays[graph.ndata['is_pi']==1] = th.tensor(PIs_delay,dtype=th.float).reshape(len(PIs_delay),1)
 
                 graph_info['delay-label_pairs'].append((PIs_delay, POs_label))
+                graph_info['POs_name'] = POs
 
+
+            POs_base_label = []
+            for nid, node in enumerate(graph_info['nodes_name']):
+                if base_po_labels.get(node, None) is not None:
+                    POs_base_label.append(base_po_labels[node])
+            graph_info['base_po_labels'] = POs_base_label
+
+            if len(graph_info['delay-label_pairs'])==0:
+                continue
             num += 1
             if graph is not None:
                 dataset.append((graph,graph_info))
