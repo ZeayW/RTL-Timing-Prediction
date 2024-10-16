@@ -158,7 +158,8 @@ def load_data(usage):
 
 def init_model(options):
     model = TimeConv(
-            infeat_dim=len(ntype2id),
+            infeat_dim1=len(ntype2id_gate),
+            infeat_dim2=len(ntype2id_module),
             hidden_dim=options.hidden_dim,
             flag_splitfeat=options.split_feat,
             attn_choice=options.attn_choice,

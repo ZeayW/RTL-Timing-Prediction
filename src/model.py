@@ -24,7 +24,8 @@ class MLP(th.nn.Module):
 class TimeConv(nn.Module):
 
     def __init__(self,
-                 infeat_dim,
+                 infeat_dim1,
+                 infeat_dim2,
                  hidden_dim,
                  attn_choice=0,
                  flag_splitfeat=False,
@@ -32,25 +33,29 @@ class TimeConv(nn.Module):
                  flag_global=True,
                  flag_attn=False):
         super(TimeConv, self).__init__()
-        if flag_splitfeat:
-            self.feat_name1 = 'feat_gate'
-            self.feat_name2 = 'feat_module'
-        else:
-            self.feat_name1 = 'feat'
-            self.feat_name2 = 'feat'
 
         self.flag_global = flag_global
         self.flag_attn = flag_attn
         self.hidden_dim = hidden_dim
-        self.attn_choice= attn_choice
+        self.attn_choice = attn_choice
         self.mlp_pi = MLP(1, int(hidden_dim / 2), hidden_dim)
-        self.mlp_agg = MLP(hidden_dim , int(hidden_dim/2), hidden_dim)
+        self.mlp_agg = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
+
+        if flag_splitfeat:
+            self.feat_name1 = 'feat_gate'
+            self.feat_name2 = 'feat_module'
+
+            self.mlp_self_gate = MLP(infeat_dim1, int(hidden_dim / 2), hidden_dim)
+            self.mlp_self_module = MLP(infeat_dim2, int(hidden_dim / 2), hidden_dim)
+        else:
+            self.feat_name1 = 'feat'
+            self.feat_name2 = 'feat'
+            self.mlp_self = MLP(infeat_dim1+infeat_dim2, int(hidden_dim / 2), hidden_dim)
         if flag_homo:
             self.mlp_neigh = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
         else:
             self.mlp_neigh_module = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
             self.mlp_neigh_gate = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
-        self.mlp_self = MLP(infeat_dim, int(hidden_dim / 2), hidden_dim)
         if flag_global:
             self.mlp_global = MLP(1, int(hidden_dim / 2), hidden_dim)
         if flag_attn:
@@ -58,7 +63,7 @@ class TimeConv(nn.Module):
             if self.attn_choice in [1,3]:
                 atnn_dim += 1
             if self.attn_choice in [2,3,7]:
-                atnn_dim += infeat_dim
+                atnn_dim += infeat_dim2
             if self.attn_choice in [4,6,7,8]:
                 self.mlp_pos = MLP(1, 32, 32)
                 atnn_dim += 32
@@ -66,7 +71,7 @@ class TimeConv(nn.Module):
                 #self.mlp_type = MLP(1, 32, 32)
                 atnn_dim += hidden_dim
             if self.attn_choice in [8]:
-                self.mlp_type = MLP(infeat_dim, 32, 32)
+                self.mlp_type = MLP(infeat_dim2, 32, 32)
                 atnn_dim += 32
             self.attention_vector = nn.Parameter(th.randn(atnn_dim,1),requires_grad=True)
 
