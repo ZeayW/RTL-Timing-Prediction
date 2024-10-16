@@ -94,7 +94,7 @@ class TimeConv(nn.Module):
         #     #h = self.mlp_neigh(nodes.data['neigh']) + self.mlp_self(nodes.data['feat'])
         #     h = self.mlp_neigh_module(nodes.data['neigh'])
         # else:
-        h = self.mlp_neigh_module(nodes.data['neigh']) + self.mlp_self(self.feat_name2)
+        h = self.mlp_neigh_module(nodes.data['neigh']) + self.mlp_self(nodes.data[self.feat_name2])
         # apply activation except the POs
         mask = nodes.data['is_po'].squeeze() != 1
         h[mask] = self.activation(h[mask])

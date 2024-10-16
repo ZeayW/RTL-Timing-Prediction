@@ -160,6 +160,7 @@ def init_model(options):
     model = TimeConv(
             infeat_dim=len(ntype2id),
             hidden_dim=options.hidden_dim,
+            flag_splitfeat=options.split_feat,
             attn_choice=options.attn_choice,
             flag_homo=options.flag_homo,
             flag_global=options.flag_global,
