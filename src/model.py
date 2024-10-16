@@ -27,10 +27,18 @@ class TimeConv(nn.Module):
                  infeat_dim,
                  hidden_dim,
                  attn_choice=0,
+                 flag_splitfeat=False,
                  flag_homo=False,
                  flag_global=True,
                  flag_attn=False):
         super(TimeConv, self).__init__()
+        if flag_splitfeat:
+            self.feat_name1 = 'feat_gate'
+            self.feat_name2 = 'feat_module'
+        else:
+            self.feat_name1 = 'feat'
+            self.feat_name2 = 'feat'
+
         self.flag_global = flag_global
         self.flag_attn = flag_attn
         self.hidden_dim = hidden_dim
@@ -75,7 +83,7 @@ class TimeConv(nn.Module):
             #h = self.mlp_neigh(nodes.data['neigh']) + self.mlp_self(nodes.data['feat'])
             h = self.mlp_neigh(nodes.data['neigh'])
         else:
-            h = self.mlp_neigh(nodes.data['neigh']) + self.mlp_self(nodes.data['feat'])
+            h = self.mlp_neigh(nodes.data['neigh']) + self.mlp_self(nodes.data[self.feat_name1])
         # apply activation except the POs
         mask = nodes.data['is_po'].squeeze() != 1
         h[mask] = self.activation(h[mask])
@@ -86,7 +94,7 @@ class TimeConv(nn.Module):
         #     #h = self.mlp_neigh(nodes.data['neigh']) + self.mlp_self(nodes.data['feat'])
         #     h = self.mlp_neigh_module(nodes.data['neigh'])
         # else:
-        h = self.mlp_neigh_module(nodes.data['neigh']) + self.mlp_self(nodes.data['feat'])
+        h = self.mlp_neigh_module(nodes.data['neigh']) + self.mlp_self(self.feat_name2)
         # apply activation except the POs
         mask = nodes.data['is_po'].squeeze() != 1
         h[mask] = self.activation(h[mask])
@@ -97,7 +105,7 @@ class TimeConv(nn.Module):
         #     #h = self.mlp_neigh(nodes.data['neigh']) + self.mlp_self(nodes.data['feat'])
         #     h = self.mlp_neigh_gate(nodes.data['neigh'])
         # else:
-        h = self.mlp_neigh_gate(nodes.data['neigh']) + self.mlp_self(nodes.data['feat'])
+        h = self.mlp_neigh_gate(nodes.data['neigh']) + self.mlp_self(nodes.data[self.feat_name1])
         # apply activation except the POs
         mask = nodes.data['is_po'].squeeze() != 1
         h[mask] = self.activation(h[mask])
@@ -114,19 +122,19 @@ class TimeConv(nn.Module):
         elif self.attn_choice==1:
             z = th.cat((edges.data['bit_position'].unsqueeze(1), edges.src['h']), dim=1)
         elif self.attn_choice==2:
-            z = th.cat((edges.dst['feat'],edges.src['h']), dim=1)
+            z = th.cat((edges.dst[self.feat_name2],edges.src['h']), dim=1)
         elif self.attn_choice==3:
-            z= th.cat((edges.dst['feat'],edges.data['bit_position'].unsqueeze(1), edges.src['h']), dim=1)
+            z= th.cat((edges.dst[self.feat_name2],edges.data['bit_position'].unsqueeze(1), edges.src['h']), dim=1)
         elif self.attn_choice==4:
             z = th.cat((self.mlp_pos(edges.data['bit_position'].unsqueeze(1)), edges.src['h']), dim=1)
         elif self.attn_choice==5:
-            z = th.cat((self.mlp_self(edges.dst['feat']),edges.src['h']), dim=1)
+            z = th.cat((self.mlp_self(edges.dst[self.feat_name2]),edges.src['h']), dim=1)
         elif self.attn_choice==6:
-            z = th.cat((self.mlp_self(edges.dst['feat']),self.mlp_pos(edges.data['bit_position'].unsqueeze(1)), edges.src['h']), dim=1)
+            z = th.cat((self.mlp_self(edges.dst[self.feat_name2]),self.mlp_pos(edges.data['bit_position'].unsqueeze(1)), edges.src['h']), dim=1)
         elif self.attn_choice==7:
-            z = th.cat((edges.dst['feat'],self.mlp_pos(edges.data['bit_position']).unsqueeze(1), edges.src['h']), dim=1)
+            z = th.cat((edges.dst[self.feat_name2],self.mlp_pos(edges.data['bit_position'].unsqueeze(1)), edges.src['h']), dim=1)
         elif self.attn_choice==8:
-            z = th.cat((self.mlp_type(edges.dst['feat']),self.mlp_pos(edges.data['bit_position']).unsqueeze(1), edges.src['h']), dim=1)
+            z = th.cat((self.mlp_type(edges.dst[self.feat_name2]),self.mlp_pos(edges.data['bit_position'].unsqueeze(1)), edges.src['h']), dim=1)
         #z = th.cat((edges.data['bit_position'].unsqueeze(1),edges.src['h']),dim=1)
         #z = edges.src['h']
         #z = self.mlp_key(edges.data['bit_position'].unsqueeze(1))
