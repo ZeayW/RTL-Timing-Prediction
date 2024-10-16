@@ -49,14 +49,17 @@ class TimeConv(nn.Module):
             atnn_dim = hidden_dim
             if self.attn_choice in [1,3]:
                 atnn_dim += 1
-            if self.attn_choice in [2,3]:
+            if self.attn_choice in [2,3,7]:
                 atnn_dim += infeat_dim
-            if self.attn_choice in [4,6]:
+            if self.attn_choice in [4,6,7,8]:
                 self.mlp_pos = MLP(1, 32, 32)
                 atnn_dim += 32
             if self.attn_choice in [5,6]:
                 #self.mlp_type = MLP(1, 32, 32)
                 atnn_dim += hidden_dim
+            if self.attn_choice in [8]:
+                self.mlp_type = MLP(infeat_dim, 32, 32)
+                atnn_dim += 32
             self.attention_vector = nn.Parameter(th.randn(atnn_dim,1),requires_grad=True)
 
         out_dim = hidden_dim*2 if flag_global else hidden_dim
@@ -119,7 +122,11 @@ class TimeConv(nn.Module):
         elif self.attn_choice==5:
             z = th.cat((self.mlp_self(edges.dst['feat']),edges.src['h']), dim=1)
         elif self.attn_choice==6:
-            z = th.cat((self.mlp_self(edges.dst['feat']),self.mlp_pos(edges.data['bit_position']).unsqueeze(1), edges.src['h']), dim=1)
+            z = th.cat((self.mlp_self(edges.dst['feat']),self.mlp_pos(edges.data['bit_position'].unsqueeze(1)), edges.src['h']), dim=1)
+        elif self.attn_choice==7:
+            z = th.cat((edges.dst['feat'],self.mlp_pos(edges.data['bit_position']).unsqueeze(1), edges.src['h']), dim=1)
+        elif self.attn_choice==8:
+            z = th.cat((self.mlp_type(edges.dst['feat']),self.mlp_pos(edges.data['bit_position']).unsqueeze(1), edges.src['h']), dim=1)
         #z = th.cat((edges.data['bit_position'].unsqueeze(1),edges.src['h']),dim=1)
         #z = edges.src['h']
         #z = self.mlp_key(edges.data['bit_position'].unsqueeze(1))
@@ -176,7 +183,7 @@ class TimeConv(nn.Module):
                         nodes_gate = nodes[isGate_mask]
                         nodes_module = nodes[isModule_mask]
                         if len(nodes_gate)!=0: graph.pull(nodes_gate, fn.copy_src('h', 'm'), fn.mean('m', 'neigh'), self.nodes_func_gate, etype='intra_gate')
-                        if len(nodes_module)!=0: graph.pull(nodes_module, fn.copy_src('h', 'm'), fn.max('m', 'neigh'), self.nodes_func_module, etype='intra_module')
+                        if len(nodes_module)!=0: graph.pull(nodes_module, fn.copy_src('h', 'm'), fn.mean('m', 'neigh'), self.nodes_func_module, etype='intra_module')
                     else:
                         graph.pull(nodes, fn.copy_src('h', 'm'), fn.mean('m', 'neigh'), self.nodes_func)
 
@@ -194,27 +201,22 @@ class TimeConv(nn.Module):
 
             return rst
 
-class DelayProp(nn.Module):
+class GraphProp(nn.Module):
 
-    def __init__(self):
-        super(DelayProp, self).__init__()
+    def __init__(self,featname):
+        super(GraphProp, self).__init__()
+        self.featname = featname
 
-
-
-
-
-    def nodes_func(self,nodes):
+    def nodes_func_delay(self,nodes):
         h = nodes.data['neigh'] + 1
         return {'delay':h}
 
-    def forward(self, graph,graph_info):
-        topo = graph_info['topo']
-        PO_mask = graph_info['POs']
+    def forward(self, graph,topo):
         with graph.local_scope():
             #propagate messages in the topological order, from PIs to POs
             for i, nodes in enumerate(topo[1:]):
-                graph.pull(nodes, fn.copy_src('delay', 'm'), fn.max('m', 'neigh'), self.nodes_func)
+                graph.pull(nodes, fn.copy_src(self.featname, 'm'), fn.max('m', self.featname))
 
 
+            return graph.ndata[self.featname]
 
-            return graph.ndata['delay']

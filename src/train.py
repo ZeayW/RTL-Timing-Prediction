@@ -23,11 +23,11 @@ device = th.device("cuda:" + str(options.gpu) if th.cuda.is_available() else "cp
 R2_score = R2Score().to(device)
 Loss = nn.MSELoss()
 
-delay_prop = DelayProp()
-
 #ntype2id =  {'input': 0, "1'b0": 1, "1'b1": 2, 'add': 3, 'decoder': 4, 'and': 5, 'xor': 6, 'not': 7, 'or': 8, 'xnor': 9, 'encoder': 10, 'eq': 11, 'lt': 12, 'ne': 13, 'mux': 14}
 with open(os.path.join(options.data_savepath, 'ntype2id.pkl'), 'rb') as f:
-    ntype2id = pickle.load(f)
+    ntype2id,ntype2id_gate,ntype2id_module = pickle.load(f)
+
+print(ntype2id,ntype2id_gate,ntype2id_module)
 
 def is_heter(graph):
     return len(graph._etypes)>1 or len(graph._ntypes)>1
@@ -80,10 +80,12 @@ def load_data(usage):
     for  graph,graph_info in data:
         name2nid = {graph_info['nodes_name'][i]:i for i in range(len(graph_info['nodes_name']))}
 
+        if options.flag_homo:
+            graph = heter2homo(graph)
 
-        # graph = heter2homo(graph)
-
-
+        graph.ndata['feat'] = graph.ndata['ntype']
+        graph.ndata['feat_module'] = graph.ndata['ntype_module']
+        graph.ndata['feat_gate'] = graph.ndata['ntype_gate']
         graph_info['POs_feat'] = graph_info['POs_level_max'].unsqueeze(-1)
         graph.ndata['h'] = th.ones((graph.number_of_nodes(), options.hidden_dim), dtype=th.float)
         # graph.ndata['is_po'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
@@ -199,15 +201,11 @@ def test(model,test_data,test_idx_loader):
                 graphs = []
                 for data in sampled_data:
     
-                    PIs_delay, POs_label = data['delay-label_pairs'][i]
+                    PIs_delay, POs_label, _ = data['delay-label_pairs'][i]
                     if options.target_base:
                         POs_label = data['base_po_labels']
 
 
-                    # for j in range(len(POs_label)):
-                    #     POs_label[j] += data['base_po_labels'][j]
-                    if len(data['POs']) != len(POs_label):
-                        continue
                     graph = data['graph']
                     graph.ndata['label'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
                     graph.ndata['label'][graph.ndata['is_po'] == 1] = th.tensor(POs_label, dtype=th.float).unsqueeze(-1)
@@ -293,16 +291,13 @@ def train(model):
                 graphs = []
                 for data in sampled_data:
 
-                    PIs_delay, POs_label = data['delay-label_pairs'][i]
+                    PIs_delay, POs_label, _ = data['delay-label_pairs'][i]
                     if options.target_base:
                         POs_label =  data['base_po_labels']
 
                     # for j in range(len(POs_label)):
                     #     POs_label[j] += data['base_po_labels'][j]
 
-
-                    if len(data['POs'])!= len(POs_label):
-                        continue
                     graph = data['graph']
                     graph.ndata['label'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
                     graph.ndata['label'][graph.ndata['is_po'] == 1] = th.tensor( POs_label,dtype=th.float).unsqueeze(-1)
@@ -367,12 +362,11 @@ if __name__ == "__main__":
         model_save_path = '../checkpoints/{}/{}.pth'.format(options.checkpoint, options.test_iter)
         assert os.path.exists(model_save_path), 'start_point {} of checkpoint {} does not exist'.\
             format(options.test_iter, options.checkpoint)
-        data_savepath = options.data_savepath
+        input_options = options
         options = th.load('../checkpoints/{}/options.pkl'.format(options.checkpoint))
-        options.data_savepath = data_savepath
-        options.target_base = False
-        options.flag_filter = False
-        options.flag_homo = True
+        options.data_savepath = input_options.data_savepath
+        options.target_base = input_options.target_base
+        options.flag_filter = input_options.flag_filter
 
         model = init_model(options)
         model = model.to(device)

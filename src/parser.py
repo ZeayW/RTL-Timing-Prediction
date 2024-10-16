@@ -4,6 +4,9 @@ import os
 import pickle
 from options import get_options
 from random import shuffle
+from model import GraphProp
+import tee
+
 
 options = get_options()
 rawdata_path = options.rawdata_path
@@ -11,16 +14,10 @@ data_savepath = options.data_savepath
 os.makedirs(data_savepath,exist_ok=True)
 
 ntype_file = os.path.join(data_savepath,'ntype2id.pkl')
-if os.path.exists(ntype_file):
-    with open(ntype_file,'rb') as f:
-        ntype2id = pickle.load(f)
-else:
-    ntype2id = {
-        'input':0,
-        "1'b0":1,
-        "1'b1":2,
-    }
 
+ntype2id = {'input':0, "1'b0":1, "1'b1":2}
+ntype2id_gate = {'input':0, "1'b0":1, "1'b1":2}
+ntype2id_module = {}
 
 class GraphInfo:
     def __init__(self,design_name,case_name):
@@ -58,6 +55,52 @@ def gen_topo(graph):
     topo = dgl.topological_nodes_generator(g)
 
     return topo
+
+def heter2homo(graph):
+    src_module, dst_module = graph.edges(etype='intra_module', form='uv')
+    src_gate, dst_gate = graph.edges(etype='intra_gate', form='uv')
+    homo_g = dgl.graph((th.cat([src_module, src_gate]), th.cat([dst_module, dst_gate])))
+
+    for key, data in graph.ndata.items():
+        homo_g.ndata[key] = graph.ndata[key]
+
+    return homo_g
+def reverse_graph(g):
+    edges = g.edges()
+    reverse_edges = (edges[1], edges[0])
+
+    rg = dgl.graph(reverse_edges, num_nodes=g.num_nodes())
+    for key, value in g.ndata.items():
+        # print(key,value)
+        rg.ndata[key] = value
+    for key, value in g.edata.items():
+        # print(key,value)
+        rg.edata[key] = value
+    return rg
+
+def graph_filter(graph):
+    homo_graph = heter2homo(graph)
+    homo_graph_r = reverse_graph(homo_graph)
+    topo_r = dgl.topological_nodes_generator(homo_graph_r)
+    graphProp_model = GraphProp('temp')
+    homo_graph_r.ndata['temp'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
+    homo_graph_r.ndata['temp'][graph.ndata['is_po'] == 1] = 1
+    fitler_mask = graphProp_model(homo_graph_r,topo_r).squeeze(1)
+    #print(fitler_mask.shape,th.sum(fitler_mask))
+    remove_nodes = th.tensor(range(graph.number_of_nodes()))[fitler_mask==0]
+    remain_nodes = th.tensor(range(graph.number_of_nodes()))[fitler_mask==1]
+    #print('\t filtering: remove {} useless nodes'.format(len(remove_nodes)))
+
+    return remain_nodes,remove_nodes
+
+
+def filter_list(l,idxs):
+    new_l = []
+    for i in idxs:
+        new_l.append(l[i])
+
+    return new_l
+
 
 
 class Parser:
@@ -199,7 +242,8 @@ class Parser:
                             self.nodes[n] = {'ntype':gate_type,'is_po':False,'is_module':0}
                         else:
                             self.nodes[n]['ntype'] = gate_type
-                        ntype2id[gate_type] = ntype2id.get(gate_type,len(ntype2id))
+                        ntype2id['mux'] = ntype2id.get('mux',len(ntype2id))
+                        ntype2id_gate['mux'] = ntype2id_gate.get('mux', len(ntype2id_gate))
                         fo2fi[n] = []
                     # add the edges between fanin nodes and fanout nodes
                     for port, fanin_nodes in io_nodes.items():
@@ -225,12 +269,6 @@ class Parser:
                     # print(sentence)
                     # print(io_wires)
                     io_nodes = {p: self.parse_wire(w) for p, w in io_wires.items()}
-
-
-
-                    # print(sentence)
-                    # print('\t\t',io_wires)
-                    # print('\t\t',io_nodes)
                     assert io_wires.get('o', None) is not None
                     fanout_nodes = io_nodes['o']
                     fanout_nodes.reverse()
@@ -243,6 +281,7 @@ class Parser:
                             self.nodes[n]['ntype'] = gate_type
                             self.nodes[n]['is_module'] = 1
                         ntype2id[gate_type] = ntype2id.get(gate_type, len(ntype2id))
+                        ntype2id_module[gate_type] = ntype2id_module.get(gate_type, len(ntype2id_module))
                         fo2fi[n] = []
 
                     # add the edges between fanin nodes and fanout nodes
@@ -254,7 +293,7 @@ class Parser:
                             continue
 
                         # for port i0,i1: link fi_i[j...0] with fo[j]
-                        elif port.startswith('i') and len(fanout_nodes)!=1:
+                        elif port.startswith('i') and len(fanout_nodes)!=1 and gate_type not in ['encoder','decoder']:
 
                             for i, fanout_node in enumerate(fanout_nodes):
                                 fo2fi[fanout_node].extend(fanin_nodes[:i+1])
@@ -288,9 +327,10 @@ class Parser:
                         self.nodes[fanin_node]['nickname'] = fanout_node
                         self.nodes[fanin_node]['is_po'] = self.nodes[fanout_node]['is_po']
                         self.nodes[fanout_node]['ntype'] = None
-                        self.nodes[fanin_node]['is_module'] = self.nodes[fanout_node]['is_module']
+                        #self.nodes[fanin_node]['is_module'] = self.nodes[fanout_node]['is_module']
                     else:
                         ntype2id[gate_type] = ntype2id.get(gate_type, len(ntype2id))
+                        ntype2id_gate[gate_type] = ntype2id_gate.get(gate_type, len(ntype2id_gate))
                         fo2fi[fanout_node] = fanin_nodes
 
                 # add the edges from fanins to fanouts
@@ -331,10 +371,7 @@ class Parser:
         graph_info = {}
         node2nid = {}
         nid2node = {}
-        nodes_type,nodes_delay,nodes_name,POs, POs_label = [],[],[],[],[]
-        nodes_nickname = []
-        POs_name = []
-        PIs_name = []
+        nodes_type,nodes_delay,nodes_name, POs_label = [],[],[],[]
         is_po,is_pi= [],[]
 
 
@@ -355,7 +392,6 @@ class Parser:
             #nodes_delay.append(self.pi_delay.get(node,0))
             if self.pi_delay.get(node,None) is not None:
                 is_pi.append(1)
-                PIs_name.append(node)
             else:
                 is_pi.append(0)
 
@@ -366,8 +402,6 @@ class Parser:
                 if nickname is not None:
                     node = nickname
                 if self.po_labels.get(node,None) is not None:
-                    POs_name.append(node)
-                    POs.append(nid)
                     is_po.append(1)
                 else:
                     is_po.append(0)
@@ -400,47 +434,49 @@ class Parser:
          ('node', 'intra_gate', 'node'): (th.tensor(src_nodes[0]), th.tensor(dst_nodes[0]))
          }
         )
-        print(graph.number_of_nodes('node'),graph.number_of_edges('intra_module'),graph.number_of_edges('intra_gate'))
+        graph.ndata['is_po'] = th.tensor(is_po)
+        graph.ndata['is_pi'] = th.tensor(is_pi)
+        graph.ndata['is_module'] = th.tensor(is_module)
+        graph.edges['intra_module'].data['bit_position'] = th.tensor(bit_position, dtype=th.float)
+
+        print('\t pre-filter: #node:{}, #edges:{}, {}'.format(graph.number_of_nodes(),
+                                                               graph.number_of_edges('intra_gate'),
+                                                               graph.number_of_edges('intra_module')))
+        remain_nodes,remove_nodes = graph_filter(graph)
+        remain_nodes = remain_nodes.numpy().tolist()
+        graph.remove_nodes(remove_nodes)
+        nodes_type = filter_list(nodes_type,remain_nodes)
+        nodes_name = filter_list(nodes_name, remain_nodes)
+
+        nodes_list = th.tensor(range(graph.number_of_nodes()))
+        PIs_nid = nodes_list[graph.ndata['is_pi']==1].numpy().tolist()
+        PIs_name = [nodes_name[n][0] for n in PIs_nid]
+        POs_nid = nodes_list[graph.ndata['is_po'] == 1].numpy().tolist()
+        POs_name = []
+        for n in POs_nid:
+            if nodes_name[n][1] is not None:
+                POs_name.append(nodes_name[n][1])
+            else:
+                POs_name.append(nodes_name[n][0])
+
         topo = gen_topo(graph)
-
-        #print(PIs_name,len(PIs_name))
-
-        # graph = dgl.graph((th.tensor(src_nodes[0]),th.tensor(dst_nodes[0])))
-        # topo = dgl.topological_nodes_generator(graph)
-        # print(len(is_po))
-        # print(graph.number_of_nodes())
-
         PO2level = {}
-        j = 0
-        for l,nodes in enumerate(topo):
+        for l, nodes in enumerate(gen_topo(graph)):
             for n in nodes.numpy().tolist():
-                if n in POs:
+                if n in POs_nid:
                     PO2level[n] = l
-        POs_level = [PO2level[n] for n in POs]
+        POs_level = [PO2level[n] for n in POs_nid]
+
         graph_info['topo'] = topo
         graph_info['ntype'] = nodes_type
         graph_info['nodes_name'] = nodes_name
-        graph_info['POs'] = POs
+        #graph_info['POs'] = POs
         #graph_info['POs_label'] = th.tensor(POs_label,dtype=th.float)
         graph_info['POs_level_max'] = th.tensor(POs_level,dtype=th.float)
         graph_info['POs_name'] = POs_name
         graph_info['PIs_name'] = PIs_name
         graph_info['case_name'] = self.case_name
         graph_info['design_name'] = self.design_name
-        graph.ndata['is_po'] = th.tensor(is_po)
-        graph.ndata['is_pi'] = th.tensor(is_pi)
-
-        graph.ndata['is_module'] = th.tensor(is_module)
-        graph.edges['intra_module'].data['bit_position'] = th.tensor(bit_position,dtype=th.float)
-
-
-        #print(th.sum(graph.ndata['is_po']), len(self.po_labels))
-        # graph.ndata['is_module'] = th.tensor(is_module)
-        #graph.ndata['delay'] = th.tensor(nodes_delay,dtype=th.float).reshape((len(nodes_delay),1))
-
-        # print(POs)
-        # print(topo)
-
 
 
         # POs_level_min = []     # record the shortest path length from an PI to any PI
@@ -464,9 +500,9 @@ class Parser:
         # graph_info['POs_level_min'] = th.tensor(POs_level_min,dtype=th.float)
 
         # print('\t',graph)
-        print('\t #node:{}, #edges:{}'.format(graph.number_of_nodes(),graph.number_of_edges()))
+        print('\t post-filter: #node:{}, #edges:{}, {}'.format(graph.number_of_nodes(),graph.number_of_edges('intra_gate'),graph.number_of_edges('intra_module')))
         # print('\t',graph_info)
-        print('\t POs: max levels={}'.format(POs_level))
+        #print('\t POs: max levels={}'.format(POs_level))
         #print('\t      min_levels={}'.format(POs_level_min))
 
         return graph, graph_info
@@ -582,13 +618,13 @@ def main():
                 #print(design_name,idx,po_labels)
                 if len(po_labels)!=len(base_po_labels):
                     continue
-                #po_labels = {p: d-base_po_labels[p] for (p,d) in po_labels.items()}
+                po_labels_residual = {p: d-base_po_labels[p] for (p,d) in po_labels.items()}
                 #print('\t',po_labels)
 
 
                 temp_nodenames = []
                 cur_pis = []
-                PIs_delay, POs_label,POs = [], [],[]
+                PIs_delay, POs_label,POs_label_residual, POs = [], [],[], [ ]
                 if pi_delay is None:
                     continue
 
@@ -597,17 +633,17 @@ def main():
 
                 for node in graph_info['POs_name']:
                     POs_label.append(po_labels[node])
+                    POs_label_residual.append(po_labels_residual[node])
 
                 #print(idx,len(PIs_delay),th.sum(graph.ndata['is_pi']).item(),len(POs_label),th.sum(graph.ndata['is_po']).item())
                 assert len(PIs_delay) == th.sum(graph.ndata['is_pi']).item() and len(POs_label) == th.sum(graph.ndata['is_po']).item()
-                graph_info['delay-label_pairs'].append((PIs_delay, POs_label))
+                graph_info['delay-label_pairs'].append((PIs_delay, POs_label,POs_label_residual))
 
 
 
             POs_base_label = []
-            for nid, node in enumerate(graph_info['nodes_name']):
-                if base_po_labels.get(node, None) is not None:
-                    POs_base_label.append(base_po_labels[node])
+            for node in graph_info['POs_name']:
+                POs_base_label.append(base_po_labels[node])
             graph_info['base_po_labels'] = POs_base_label
 
             if len(graph_info['delay-label_pairs'])==0:
@@ -620,34 +656,27 @@ def main():
         # exit()
     if not os.path.exists(ntype_file):
         with open(ntype_file,'wb') as f:
-            pickle.dump(ntype2id,f)
-    print('ntypes:',ntype2id)
+            pickle.dump((ntype2id,ntype2id_gate,ntype2id_module),f)
+    print('ntypes:',ntype2id,ntype2id_gate,ntype2id_module)
 
     final_dataset = []
     for graph, graph_info in dataset:
+        is_module = graph.ndata['is_module'].numpy().tolist()
         ntype_onehot = th.zeros((graph.number_of_nodes(), len(ntype2id)), dtype=th.float)
-        for i, type in enumerate(graph_info['ntype']):
-            ntype_onehot[i][ntype2id[type]] = 1
-        graph.ndata['feat'] = ntype_onehot
+        ntype_onehot_module = th.zeros((graph.number_of_nodes(), len(ntype2id_module)), dtype=th.float)
+        ntype_onehot_gate = th.zeros((graph.number_of_nodes(), len(ntype2id_gate)), dtype=th.float)
+
+        for nid, type in enumerate(graph_info['ntype']):
+            ntype_onehot[nid][ntype2id[type]] = 1
+            if is_module[nid] == 1:
+                ntype_onehot_module[nid][ntype2id_module[type]] = 1
+            else:
+                ntype_onehot_gate[nid][ntype2id_gate[type]] = 1
+        graph.ndata['ntype'] = ntype_onehot
+        graph.ndata['ntype_module'] = ntype_onehot_module
+        graph.ndata['ntype_gate'] = ntype_onehot_gate
         final_dataset.append((graph,graph_info))
-    #     design_name = graph_info['design_name']
-    #     final_dataset[design_name] = final_dataset.get(design_name,[])
-    #     final_dataset[design_name].append((graph,graph_info))
-    #     # print(design_name,len(final_dataset[design_name]))
-    # final_dataset = list(final_dataset.items())
-    # shuffle(final_dataset)
-    # num_samples = len(final_dataset)
-    # # print(num_samples)
-    # # print(len(final_dataset[0][1]))
-    # split_ratio = [0.7,0.1,0.2]
-    # data_train,data_val,data_test = [],[],[]
-    # for i in range(0,int(num_samples*split_ratio[0])):
-    #     data_train.extend(final_dataset[i][1])
-    # for i in range(int(num_samples*split_ratio[0]), int(num_samples*(split_ratio[0]+split_ratio[1]))):
-    #     data_val.extend(final_dataset[i][1])
-    # for i in range(int(num_samples * (split_ratio[0] + split_ratio[1])),num_samples):
-    #     data_test.extend(final_dataset[i][1])
-    #
+
     dataset = final_dataset
     shuffle(dataset)
     split_ratio = [0.7, 0.1, 0.2]
@@ -662,11 +691,15 @@ def main():
         pickle.dump(data_val,f)
     with open(os.path.join(data_savepath,'data_test.pkl'),'wb') as f:
         pickle.dump(data_test,f)
-    print(len(dataset))
-    with open(os.path.join(data_savepath,'data.pkl'),'wb') as f:
-        pickle.dump(dataset,f)
+    #print(len(dataset))
+    # with open(os.path.join(data_savepath,'data.pkl'),'wb') as f:
+    #     pickle.dump(dataset,f)
     # with open(os.path.join(data_savepath,'graph.pkl'),'wb') as f:
     #     pickle.dump(final_dataset,f)
 
 if __name__ == "__main__":
-    main()
+    stdout_f = os.path.join(data_savepath,'stdout.log')
+    stderr_f = os.path.join(data_savepath, 'stderr.log')
+
+    with tee.StdoutTee(stdout_f), tee.StderrTee(stderr_f):
+        main()
