@@ -51,6 +51,7 @@ class TimeConv(nn.Module):
             self.feat_name1 = 'feat'
             self.feat_name2 = 'feat'
             self.mlp_self = MLP(infeat_dim1+infeat_dim2, int(hidden_dim / 2), hidden_dim)
+            self.mlp_self_module = self.mlp_self
         if flag_homo:
             self.mlp_neigh = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
         else:
@@ -99,7 +100,7 @@ class TimeConv(nn.Module):
         #     #h = self.mlp_neigh(nodes.data['neigh']) + self.mlp_self(nodes.data['feat'])
         #     h = self.mlp_neigh_module(nodes.data['neigh'])
         # else:
-        h = self.mlp_neigh_module(nodes.data['neigh']) + self.mlp_self(nodes.data[self.feat_name2])
+        h = self.mlp_neigh_module(nodes.data['neigh']) + self.mlp_self_module(nodes.data[self.feat_name2])
         # apply activation except the POs
         mask = nodes.data['is_po'].squeeze() != 1
         h[mask] = self.activation(h[mask])
@@ -110,7 +111,7 @@ class TimeConv(nn.Module):
         #     #h = self.mlp_neigh(nodes.data['neigh']) + self.mlp_self(nodes.data['feat'])
         #     h = self.mlp_neigh_gate(nodes.data['neigh'])
         # else:
-        h = self.mlp_neigh_gate(nodes.data['neigh']) + self.mlp_self(nodes.data[self.feat_name1])
+        h = self.mlp_neigh_gate(nodes.data['neigh']) + self.mlp_self_gate(nodes.data[self.feat_name1])
         # apply activation except the POs
         mask = nodes.data['is_po'].squeeze() != 1
         h[mask] = self.activation(h[mask])
@@ -133,9 +134,9 @@ class TimeConv(nn.Module):
         elif self.attn_choice==4:
             z = th.cat((self.mlp_pos(edges.data['bit_position'].unsqueeze(1)), edges.src['h']), dim=1)
         elif self.attn_choice==5:
-            z = th.cat((self.mlp_self(edges.dst[self.feat_name2]),edges.src['h']), dim=1)
+            z = th.cat((self.mlp_self_module(edges.dst[self.feat_name2]),edges.src['h']), dim=1)
         elif self.attn_choice==6:
-            z = th.cat((self.mlp_self(edges.dst[self.feat_name2]),self.mlp_pos(edges.data['bit_position'].unsqueeze(1)), edges.src['h']), dim=1)
+            z = th.cat((self.mlp_self_module(edges.dst[self.feat_name2]),self.mlp_pos(edges.data['bit_position'].unsqueeze(1)), edges.src['h']), dim=1)
         elif self.attn_choice==7:
             z = th.cat((edges.dst[self.feat_name2],self.mlp_pos(edges.data['bit_position'].unsqueeze(1)), edges.src['h']), dim=1)
         elif self.attn_choice==8:
