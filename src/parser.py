@@ -611,8 +611,8 @@ def main():
             graph_info['delay-label_pairs'] = []
             base_labels = {}
             for idx in case_indexs:
-                if idx==0:
-                    continue
+                # if idx==0:
+                #     continue
                 golden_file_path = os.path.join(subdir_path, '{}_{}'.format(design_name,idx),'golden.txt')
                 pi_delay,po_labels = parse_golden(golden_file_path)
                 #print(design_name,idx,po_labels)

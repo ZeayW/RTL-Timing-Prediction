@@ -139,7 +139,7 @@ def load_data(usage):
     # batch_size = options.batch_size if usage=='train' else len(loaded_data)
     batch_size = options.batch_size
     drop_last = True if usage == 'train' else False
-    #drop_last = False
+    drop_last = False
     sampler = SubsetRandomSampler(th.arange(len(loaded_data)))
     idx_loader = DataLoader([i for i in range(len(loaded_data))], sampler=sampler, batch_size=batch_size,
                               drop_last=drop_last)
@@ -328,7 +328,6 @@ def train(model):
                 #graphs_info['POs_feat'] = sampled_graphs.ndata['PO_feat'][graphs_info['POs']].to(device)
                 labels_hat = model(sampled_graphs, graphs_info)
                 labels = sampled_graphs.ndata['label'][graphs_info['POs']].to(device)
-
 
 
                 total_num += len(labels)
