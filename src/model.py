@@ -52,6 +52,7 @@ class TimeConv(nn.Module):
             self.feat_name2 = 'feat'
             self.mlp_self = MLP(infeat_dim1+infeat_dim2, int(hidden_dim / 2), hidden_dim)
             self.mlp_self_module = self.mlp_self
+            self.mlp_self_gate = self.mlp_self
         if flag_homo:
             self.mlp_neigh = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
         else:
@@ -150,6 +151,17 @@ class TimeConv(nn.Module):
         return {'m':edges.src['h'],'attn_e':e}
 
 
+    def message_func_attn_gate(self,edges):
+
+        #z = self.mlp_attn(th.cat((edges.src['h'],edges.dst['feat']),dim=1))
+        #z = th.cat((edges.src['h'],edges.dst['feat']),dim=1)
+        #z = edges.src['h']
+        z = th.cat((self.mlp_self_gate(edges.dst[self.feat_name1]), edges.src['h']), dim=1)
+
+        e = th.matmul(z,self.attention_vector)
+
+
+        return {'m':edges.src['h'],'attn_e':e}
     def reduce_func_attn(self,nodes):
         alpha = th.softmax(nodes.mailbox['attn_e'],dim=1)
         h = th.sum(alpha*nodes.mailbox['m'],dim=1)
