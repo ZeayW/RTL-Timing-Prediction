@@ -79,7 +79,7 @@ class TimeConv(nn.Module):
             if self.attn_choice in [8,9]:
                 self.mlp_type = MLP(self.infeat_dim2, 32, 32)
                 atnn_dim += 32
-            if self.attn_choice in [10,11]:
+            if self.attn_choice in [10,11,12]:
                 self.mlp_key = MLP(self.infeat_dim2+1, 32, 32)
                 atnn_dim += 32
             if self.attn_choice in [11]:
@@ -156,7 +156,7 @@ class TimeConv(nn.Module):
             z = th.cat((self.mlp_type(edges.dst[self.feat_name2]),self.mlp_pos(edges.data['bit_position'].unsqueeze(1)), edges.src['h']), dim=1)
         elif self.attn_choice==9:
             z = th.cat((self.mlp_type(edges.dst[self.feat_name2]), edges.src['h']), dim=1)
-        elif self.attn_choice in [10,11]:
+        elif self.attn_choice in [10,11,12]:
             z = th.cat((self.mlp_key(th.cat((edges.dst[self.feat_name2],edges.data['bit_position'].unsqueeze(1)),dim=1)), edges.src['h']), dim=1)
         #z = th.cat((edges.data['bit_position'].unsqueeze(1),edges.src['h']),dim=1)
         #z = edges.src['h']
