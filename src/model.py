@@ -47,6 +47,8 @@ class TimeConv(nn.Module):
 
             self.mlp_self_gate = MLP(infeat_dim1, int(hidden_dim / 2), hidden_dim)
             self.mlp_self_module = MLP(infeat_dim2, int(hidden_dim / 2), hidden_dim)
+            self.infeat_dim2 = infeat_dim2
+            self.infeat_dim1 = infeat_dim1
         else:
             self.feat_name1 = 'feat'
             self.feat_name2 = 'feat'
