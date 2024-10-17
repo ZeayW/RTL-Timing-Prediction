@@ -138,8 +138,8 @@ def load_data(usage):
     #loaded_data = loaded_data[:int(len(loaded_data)/10)]
     # batch_size = options.batch_size if usage=='train' else len(loaded_data)
     batch_size = options.batch_size
-    #drop_last = True if usage == 'train' else False
-    drop_last = False
+    drop_last = True if usage == 'train' else False
+    #drop_last = False
     sampler = SubsetRandomSampler(th.arange(len(loaded_data)))
     idx_loader = DataLoader([i for i in range(len(loaded_data))], sampler=sampler, batch_size=batch_size,
                               drop_last=drop_last)
