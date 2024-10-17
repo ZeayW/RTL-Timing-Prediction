@@ -83,6 +83,8 @@ class TimeConv(nn.Module):
             if self.attn_choice in [11]:
                 self.mlp_key_gate = MLP(self.infeat_dim1, 32, 32)
                 self.attention_vector_gate = nn.Parameter(th.randn(hidden_dim+32, 1), requires_grad=True)
+            if self.attn_choice in [12]:
+                self.attention_vector_gate = nn.Parameter(th.randn(hidden_dim, 1), requires_grad=True)
             self.attention_vector = nn.Parameter(th.randn(atnn_dim,1),requires_grad=True)
 
         out_dim = hidden_dim*2 if flag_global else hidden_dim
@@ -168,8 +170,10 @@ class TimeConv(nn.Module):
         #z = self.mlp_attn(th.cat((edges.src['h'],edges.dst['feat']),dim=1))
         #z = th.cat((edges.src['h'],edges.dst['feat']),dim=1)
         #z = edges.src['h']
-        z = th.cat((self.mlp_key_gate(edges.dst[self.feat_name1]), edges.src['h']), dim=1)
-
+        if self.attn_choice==11:
+            z = th.cat((self.mlp_key_gate(edges.dst[self.feat_name1]), edges.src['h']), dim=1)
+        elif self.attn_choice==12:
+            z = edges.src['h']
         e = th.matmul(z,self.attention_vector_gate)
 
 
