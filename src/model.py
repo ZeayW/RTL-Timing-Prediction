@@ -78,11 +78,11 @@ class TimeConv(nn.Module):
                 self.mlp_type = MLP(self.infeat_dim2, 32, 32)
                 atnn_dim += 32
             if self.attn_choice in [10,11]:
-                self.mlp_key = MLP(self.infeat_dim2+1, hidden_dim, hidden_dim)
-                atnn_dim += hidden_dim
+                self.mlp_key = MLP(self.infeat_dim2+1, 32, 32)
+                atnn_dim += 32
             if self.attn_choice in [11]:
-                self.mlp_key_gate = MLP(self.infeat_dim1, hidden_dim, hidden_dim)
-                self.attention_vector_gate = nn.Parameter(th.randn(hidden_dim+hidden_dim, 1), requires_grad=True)
+                self.mlp_key_gate = MLP(self.infeat_dim1, 32, 32)
+                self.attention_vector_gate = nn.Parameter(th.randn(hidden_dim+32, 1), requires_grad=True)
             self.attention_vector = nn.Parameter(th.randn(atnn_dim,1),requires_grad=True)
 
         out_dim = hidden_dim*2 if flag_global else hidden_dim
