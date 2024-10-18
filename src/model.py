@@ -65,29 +65,16 @@ class TimeConv(nn.Module):
         if flag_global:
             self.mlp_global = MLP(1, int(hidden_dim / 2), hidden_dim)
         if flag_attn:
-            atnn_dim = hidden_dim
+            atnn_dim_m = hidden_dim
             if self.attn_choice in [1,3]:
-                atnn_dim += 1
-            if self.attn_choice in [2,3,7]:
-                atnn_dim += self.infeat_dim2
-            if self.attn_choice in [4,6,7,8]:
-                self.mlp_pos = MLP(1, 32, 32)
-                atnn_dim += 32
-            if self.attn_choice in [5,6]:
-                #self.mlp_type = MLP(1, 32, 32)
-                atnn_dim += hidden_dim
-            if self.attn_choice in [8,9]:
                 self.mlp_type = MLP(self.infeat_dim2, 32, 32)
-                atnn_dim += 32
-            if self.attn_choice in [10,11,12]:
-                self.mlp_key = MLP(self.infeat_dim2+1, 32, 32)
-                atnn_dim += 32
-            if self.attn_choice in [11]:
-                self.mlp_key_gate = MLP(self.infeat_dim1, 32, 32)
-                self.attention_vector_gate = nn.Parameter(th.randn(hidden_dim+32, 1), requires_grad=True)
-            if self.attn_choice in [12]:
-                self.attention_vector_gate = nn.Parameter(th.randn(hidden_dim, 1), requires_grad=True)
-            self.attention_vector = nn.Parameter(th.randn(atnn_dim,1),requires_grad=True)
+                self.mlp_pos = MLP(1, 32, 32)
+                atnn_dim_m += 64
+            elif self.attn_choice in [2,4]:
+                self.mlp_key = MLP(self.infeat_dim2+1, 64, 64)
+                atnn_dim_m += 64
+            self.attention_vector_g = nn.Parameter(th.randn(hidden_dim, 1), requires_grad=True)
+            self.attention_vector_m = nn.Parameter(th.randn(atnn_dim_m,1),requires_grad=True)
 
         out_dim = hidden_dim*2 if flag_global else hidden_dim
         self.mlp_out = MLP(out_dim,hidden_dim,1)
@@ -131,37 +118,21 @@ class TimeConv(nn.Module):
         return {'h':h}
 
 
-    def message_func_attn(self,edges):
+    def message_func_attn_module(self,edges):
 
         #z = self.mlp_attn(th.cat((edges.src['h'],edges.dst['feat']),dim=1))
         #z = th.cat((edges.src['h'],edges.dst['feat']),dim=1)
         #z = edges.src['h']
         if self.attn_choice==0:
             z = edges.src['h']
-        elif self.attn_choice==1:
-            z = th.cat((edges.data['bit_position'].unsqueeze(1), edges.src['h']), dim=1)
-        elif self.attn_choice==2:
-            z = th.cat((edges.dst[self.feat_name2],edges.src['h']), dim=1)
-        elif self.attn_choice==3:
-            z= th.cat((edges.dst[self.feat_name2],edges.data['bit_position'].unsqueeze(1), edges.src['h']), dim=1)
-        elif self.attn_choice==4:
-            z = th.cat((self.mlp_pos(edges.data['bit_position'].unsqueeze(1)), edges.src['h']), dim=1)
-        elif self.attn_choice==5:
-            z = th.cat((self.mlp_self_module(edges.dst[self.feat_name2]),edges.src['h']), dim=1)
-        elif self.attn_choice==6:
-            z = th.cat((self.mlp_self_module(edges.dst[self.feat_name2]),self.mlp_pos(edges.data['bit_position'].unsqueeze(1)), edges.src['h']), dim=1)
-        elif self.attn_choice==7:
-            z = th.cat((edges.dst[self.feat_name2],self.mlp_pos(edges.data['bit_position'].unsqueeze(1)), edges.src['h']), dim=1)
-        elif self.attn_choice==8:
+        elif self.attn_choice in [1,3]:
             z = th.cat((self.mlp_type(edges.dst[self.feat_name2]),self.mlp_pos(edges.data['bit_position'].unsqueeze(1)), edges.src['h']), dim=1)
-        elif self.attn_choice==9:
-            z = th.cat((self.mlp_type(edges.dst[self.feat_name2]), edges.src['h']), dim=1)
-        elif self.attn_choice in [10,11,12]:
+        elif self.attn_choice in [2,4]:
             z = th.cat((self.mlp_key(th.cat((edges.dst[self.feat_name2],edges.data['bit_position'].unsqueeze(1)),dim=1)), edges.src['h']), dim=1)
         #z = th.cat((edges.data['bit_position'].unsqueeze(1),edges.src['h']),dim=1)
         #z = edges.src['h']
         #z = self.mlp_key(edges.data['bit_position'].unsqueeze(1))
-        e = th.matmul(z,self.attention_vector)
+        e = th.matmul(z,self.attention_vector_m)
 
 
         return {'m':edges.src['h'],'attn_e':e}
@@ -172,14 +143,12 @@ class TimeConv(nn.Module):
         #z = self.mlp_attn(th.cat((edges.src['h'],edges.dst['feat']),dim=1))
         #z = th.cat((edges.src['h'],edges.dst['feat']),dim=1)
         #z = edges.src['h']
-        if self.attn_choice==11:
-            z = th.cat((self.mlp_key_gate(edges.dst[self.feat_name1]), edges.src['h']), dim=1)
-        elif self.attn_choice==12:
-            z = edges.src['h']
-        e = th.matmul(z,self.attention_vector_gate)
 
+        z = edges.src['h']
+        e = th.matmul(z,self.attention_vector_g)
 
         return {'m':edges.src['h'],'attn_e':e}
+
     def reduce_func_attn(self,nodes):
         alpha = th.softmax(nodes.mailbox['attn_e'],dim=1)
         h = th.sum(alpha*nodes.mailbox['m'],dim=1)
@@ -215,11 +184,11 @@ class TimeConv(nn.Module):
                     if graph_info['is_heter']:
                         nodes_gate = nodes[isGate_mask]
                         nodes_module = nodes[isModule_mask]
-                        message_func_gate = self.message_func_attn_gate if self.attn_choice==11 else fn.copy_src('h', 'm')
-                        reduce_func_gate = self.reduce_func_attn if self.attn_choice==11 else fn.mean('m', 'neigh')
+                        message_func_gate = self.message_func_attn_gate if self.attn_choice in [3,4] else fn.copy_src('h', 'm')
+                        reduce_func_gate = self.reduce_func_attn if self.attn_choice in [3,4] else fn.mean('m', 'neigh')
 
                         if len(nodes_gate)!=0: graph.pull(nodes_gate, message_func_gate, reduce_func_gate, self.nodes_func_gate, etype='intra_gate')
-                        if len(nodes_module)!=0: graph.pull(nodes_module, self.message_func_attn, self.reduce_func_attn, self.nodes_func_module, etype='intra_module')
+                        if len(nodes_module)!=0: graph.pull(nodes_module, self.message_func_attn_module, self.reduce_func_attn, self.nodes_func_module, etype='intra_module')
                     else:
                         graph.pull(nodes, self.message_func_attn, self.reduce_func_attn, self.nodes_func)
                 else:
