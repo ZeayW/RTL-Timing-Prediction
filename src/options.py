@@ -3,6 +3,7 @@ import argparse
 
 def get_options(args=None):
     parser = argparse.ArgumentParser()
+    parser.add_argument('--agg_choice', type=int,default=0)
     parser.add_argument('--split_feat',action='store_true')
     parser.add_argument('--attn_choice', type=int,default=0,help='choose the way to implement the attention')
     parser.add_argument('--flag_homo', action='store_true')

@@ -27,7 +27,8 @@ class TimeConv(nn.Module):
                  infeat_dim1,
                  infeat_dim2,
                  hidden_dim,
-                 attn_choice=8,
+                 agg_choice=0,
+                 attn_choice=1,
                  flag_splitfeat=False,
                  flag_homo=False,
                  flag_global=True,
@@ -37,6 +38,7 @@ class TimeConv(nn.Module):
         self.flag_global = flag_global
         self.flag_attn = flag_attn
         self.hidden_dim = hidden_dim
+        self.agg_choice = agg_choice
         self.attn_choice = attn_choice
         self.mlp_pi = MLP(1, int(hidden_dim / 2), hidden_dim)
         self.mlp_agg = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
@@ -60,7 +62,15 @@ class TimeConv(nn.Module):
         if flag_homo:
             self.mlp_neigh = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
         else:
-            self.mlp_neigh_module = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
+            if self.agg_choice==0:
+                neigh_dim = hidden_dim
+            elif self.agg_choice==1:
+                neigh_dim = hidden_dim + 1
+            elif self.agg_choice == 2:
+                neigh_dim = hidden_dim + self.infeat_dim2
+            elif self.agg_choice == 3:
+                neigh_dim = hidden_dim + self.infeat_dim2 + 1
+            self.mlp_neigh_module = MLP(neigh_dim, int(hidden_dim / 2), hidden_dim)
             self.mlp_neigh_gate = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
         if flag_global:
             self.mlp_global = MLP(1, int(hidden_dim / 2), hidden_dim)
@@ -100,10 +110,16 @@ class TimeConv(nn.Module):
         #     #h = self.mlp_neigh(nodes.data['neigh']) + self.mlp_self(nodes.data['feat'])
         #     h = self.mlp_neigh_module(nodes.data['neigh'])
         # else:
-        h = self.mlp_neigh_module(nodes.data['neigh']) + self.mlp_self_module(nodes.data[self.feat_name2])
-        # apply activation except the POs
         mask = nodes.data['is_po'].squeeze() != 1
-        h[mask] = self.activation(h[mask])
+        if self.agg_choice in [0,1]:
+            h = self.mlp_neigh_module(nodes.data['neigh']) + self.mlp_self_module(nodes.data[self.feat_name2])
+            h[mask] = self.activation(h[mask])
+        elif self.agg_choice in [2,3]:
+            h = th.cat((nodes.data['neigh'],nodes.data[self.feat_name2]),dim=1)
+            h = self.mlp_neigh_module(h)
+            #h[mask] = self.activation(h[mask])
+        # apply activation except the POs
+
         return {'h':h}
 
     def nodes_func_gate(self,nodes):
@@ -134,8 +150,12 @@ class TimeConv(nn.Module):
         #z = self.mlp_key(edges.data['bit_position'].unsqueeze(1))
         e = th.matmul(z,self.attention_vector_m)
 
+        if self.agg_choice in [0,2]:
+            m = edges.src['h']
+        elif self.agg_choice in [1,3]:
+            m = th.cat((edges.src['h'],edges.data['bit_position'].unsqueeze(1)),dim=1)
 
-        return {'m':edges.src['h'],'attn_e':e}
+        return {'m':m,'attn_e':e}
 
 
     def message_func_attn_gate(self,edges):
