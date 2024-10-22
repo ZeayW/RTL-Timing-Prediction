@@ -327,7 +327,6 @@ class Parser:
                         self.nodes[fanin_node]['nickname'] = fanout_node
                         self.nodes[fanin_node]['is_po'] = self.nodes[fanout_node]['is_po']
                         self.nodes[fanout_node]['ntype'] = None
-                        #self.nodes[fanin_node]['is_module'] = self.nodes[fanout_node]['is_module']
                     else:
                         ntype2id[gate_type] = ntype2id.get(gate_type, len(ntype2id))
                         ntype2id_gate[gate_type] = ntype2id_gate.get(gate_type, len(ntype2id_gate))
@@ -586,10 +585,8 @@ def main():
 
 
         for design_name, case_indexs in design2idx.items():
-            #if '370' not in design_name: continue
-            #if '399' not in design_name:
-            #    print(design_name)
-            #    continue
+            if int(design_name.split('_')[-1]) in [54,96,131,300,327, 334, 397]:
+                continue
             if 0 not in case_indexs:
                 print("skip {}, due to the miss of idx 0".format(design_name))
 
@@ -646,7 +643,7 @@ def main():
                 POs_base_label.append(base_po_labels[node])
             graph_info['base_po_labels'] = POs_base_label
 
-            if len(graph_info['delay-label_pairs'])==0:
+            if len(graph_info['delay-label_pairs'])<=1:
                 continue
             num += 1
             if graph is not None:
