@@ -63,15 +63,19 @@ class TimeConv(nn.Module):
             self.mlp_neigh = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
         else:
             if self.agg_choice==0:
-                neigh_dim = hidden_dim
+                neigh_dim_m = hidden_dim
+                neigh_dim_g = hidden_dim
             elif self.agg_choice==1:
-                neigh_dim = hidden_dim + 1
+                neigh_dim_m = hidden_dim + 1
+                neigh_dim_g = hidden_dim
             elif self.agg_choice == 2:
-                neigh_dim = hidden_dim + self.infeat_dim2
+                neigh_dim_m = hidden_dim + self.infeat_dim2
+                neigh_dim_g = hidden_dim + self.infeat_dim1
             elif self.agg_choice == 3:
-                neigh_dim = hidden_dim + self.infeat_dim2 + 1
-            self.mlp_neigh_module = MLP(neigh_dim, int(hidden_dim / 2), hidden_dim)
-            self.mlp_neigh_gate = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
+                neigh_dim_m = hidden_dim + self.infeat_dim2 + 1
+                neigh_dim_g = hidden_dim + self.infeat_dim1
+            self.mlp_neigh_module = MLP(neigh_dim_m, int(hidden_dim / 2), hidden_dim)
+            self.mlp_neigh_gate = MLP(neigh_dim_g, int(hidden_dim / 2), hidden_dim)
         if flag_global:
             self.mlp_global = MLP(1, int(hidden_dim / 2), hidden_dim)
         if flag_attn:
@@ -117,7 +121,7 @@ class TimeConv(nn.Module):
         elif self.agg_choice in [2,3]:
             h = th.cat((nodes.data['neigh'],nodes.data[self.feat_name2]),dim=1)
             h = self.mlp_neigh_module(h)
-            #h[mask] = self.activation(h[mask])
+            h[mask] = self.activation(h[mask])
         # apply activation except the POs
 
         return {'h':h}
@@ -127,10 +131,17 @@ class TimeConv(nn.Module):
         #     #h = self.mlp_neigh(nodes.data['neigh']) + self.mlp_self(nodes.data['feat'])
         #     h = self.mlp_neigh_gate(nodes.data['neigh'])
         # else:
-        h = self.mlp_neigh_gate(nodes.data['neigh']) + self.mlp_self_gate(nodes.data[self.feat_name1])
+        #h = self.mlp_neigh_gate(nodes.data['neigh']) + self.mlp_self_gate(nodes.data[self.feat_name1])
         # apply activation except the POs
         mask = nodes.data['is_po'].squeeze() != 1
+
+        if self.agg_choice in [0,1]:
+            h = self.mlp_neigh_gate(nodes.data['neigh']) + self.mlp_self_gate(nodes.data[self.feat_name2])
+        elif self.agg_choice in [2,3]:
+            h = th.cat((nodes.data['neigh'],nodes.data[self.feat_name1]),dim=1)
+            h = self.mlp_neigh_gate(h)
         h[mask] = self.activation(h[mask])
+
         return {'h':h}
 
 
@@ -165,6 +176,7 @@ class TimeConv(nn.Module):
         #z = edges.src['h']
 
         z = edges.src['h']
+        #z = th.cat((edges.dst['feat'],edges.src['h']), dim=1)
         e = th.matmul(z,self.attention_vector_g)
 
         return {'m':edges.src['h'],'attn_e':e}
