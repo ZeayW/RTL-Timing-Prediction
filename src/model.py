@@ -62,31 +62,16 @@ class TimeConv(nn.Module):
         if flag_homo:
             self.mlp_neigh = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
         else:
-            if self.agg_choice==0:
-                neigh_dim_m = hidden_dim
-                neigh_dim_g = hidden_dim
-            elif self.agg_choice==1:
-                neigh_dim_m = hidden_dim + 1
-                neigh_dim_g = hidden_dim
-            elif self.agg_choice == 2:
-                neigh_dim_m = hidden_dim + self.infeat_dim2
-                neigh_dim_g = hidden_dim + self.infeat_dim1
-            elif self.agg_choice == 3:
-                neigh_dim_m = hidden_dim + self.infeat_dim2 + 1
-                neigh_dim_g = hidden_dim + self.infeat_dim1
+            neigh_dim_m = hidden_dim + self.infeat_dim2 + 1
+            neigh_dim_g = hidden_dim + self.infeat_dim1
             self.mlp_neigh_module = MLP(neigh_dim_m, int(hidden_dim / 2), hidden_dim)
             self.mlp_neigh_gate = MLP(neigh_dim_g, int(hidden_dim / 2), hidden_dim)
         if flag_global:
             self.mlp_global = MLP(1, int(hidden_dim / 2), hidden_dim)
         if flag_attn:
-            atnn_dim_m = hidden_dim
-            if self.attn_choice in [1,3]:
-                self.mlp_type = MLP(self.infeat_dim2, 32, 32)
-                self.mlp_pos = MLP(1, 32, 32)
-                atnn_dim_m += 64
-            elif self.attn_choice in [2,4]:
-                self.mlp_key = MLP(self.infeat_dim2+1, 64, 64)
-                atnn_dim_m += 64
+            atnn_dim_m = hidden_dim + 64
+            self.mlp_type = MLP(self.infeat_dim2, 32, 32)
+            self.mlp_pos = MLP(1, 32, 32)
             self.attention_vector_g = nn.Parameter(th.randn(hidden_dim, 1), requires_grad=True)
             self.attention_vector_m = nn.Parameter(th.randn(atnn_dim_m,1),requires_grad=True)
 
@@ -107,39 +92,31 @@ class TimeConv(nn.Module):
         # apply activation except the POs
         mask = nodes.data['is_po'].squeeze() != 1
         h[mask] = self.activation(h[mask])
+
         return {'h':h}
 
     def nodes_func_module(self,nodes):
-        # if self.flag_attn:
-        #     #h = self.mlp_neigh(nodes.data['neigh']) + self.mlp_self(nodes.data['feat'])
-        #     h = self.mlp_neigh_module(nodes.data['neigh'])
-        # else:
+
         mask = nodes.data['is_po'].squeeze() != 1
-        if self.agg_choice in [0,1]:
-            h = self.mlp_neigh_module(nodes.data['neigh']) + self.mlp_self_module(nodes.data[self.feat_name2])
-            h[mask] = self.activation(h[mask])
-        elif self.agg_choice in [2,3]:
-            h = th.cat((nodes.data['neigh'],nodes.data[self.feat_name2]),dim=1)
-            h = self.mlp_neigh_module(h)
-            h[mask] = self.activation(h[mask])
-        # apply activation except the POs
+        # if self.agg_choice in [0,1]:
+        #     h = self.mlp_neigh_module(nodes.data['neigh']) + self.mlp_self_module(nodes.data[self.feat_name2])
+        #     h[mask] = self.activation(h[mask])
+        # elif self.agg_choice in [2,3]:
+        h = th.cat((nodes.data['neigh'],nodes.data[self.feat_name2]),dim=1)
+        h = self.mlp_neigh_module(h)
+        h[mask] = self.activation(h[mask])
 
         return {'h':h}
 
     def nodes_func_gate(self,nodes):
-        # if self.flag_attn:
-        #     #h = self.mlp_neigh(nodes.data['neigh']) + self.mlp_self(nodes.data['feat'])
-        #     h = self.mlp_neigh_gate(nodes.data['neigh'])
-        # else:
-        #h = self.mlp_neigh_gate(nodes.data['neigh']) + self.mlp_self_gate(nodes.data[self.feat_name1])
-        # apply activation except the POs
+
         mask = nodes.data['is_po'].squeeze() != 1
 
-        if self.agg_choice in [0,1]:
-            h = self.mlp_neigh_gate(nodes.data['neigh']) + self.mlp_self_gate(nodes.data[self.feat_name2])
-        elif self.agg_choice in [2,3]:
-            h = th.cat((nodes.data['neigh'],nodes.data[self.feat_name1]),dim=1)
-            h = self.mlp_neigh_gate(h)
+        # if self.agg_choice in [0,1]:
+        #     h = self.mlp_neigh_gate(nodes.data['neigh']) + self.mlp_self_gate(nodes.data[self.feat_name2])
+        # elif self.agg_choice in [2,3]:
+        h = th.cat((nodes.data['neigh'],nodes.data[self.feat_name1]),dim=1)
+        h = self.mlp_neigh_gate(h)
         h[mask] = self.activation(h[mask])
 
         return {'h':h}
@@ -147,24 +124,23 @@ class TimeConv(nn.Module):
 
     def message_func_attn_module(self,edges):
 
-        #z = self.mlp_attn(th.cat((edges.src['h'],edges.dst['feat']),dim=1))
-        #z = th.cat((edges.src['h'],edges.dst['feat']),dim=1)
-        #z = edges.src['h']
-        if self.attn_choice==0:
-            z = edges.src['h']
-        elif self.attn_choice in [1,3]:
-            z = th.cat((self.mlp_type(edges.dst[self.feat_name2]),self.mlp_pos(edges.data['bit_position'].unsqueeze(1)), edges.src['h']), dim=1)
-        elif self.attn_choice in [2,4]:
-            z = th.cat((self.mlp_key(th.cat((edges.dst[self.feat_name2],edges.data['bit_position'].unsqueeze(1)),dim=1)), edges.src['h']), dim=1)
-        #z = th.cat((edges.data['bit_position'].unsqueeze(1),edges.src['h']),dim=1)
-        #z = edges.src['h']
-        #z = self.mlp_key(edges.data['bit_position'].unsqueeze(1))
-        e = th.matmul(z,self.attention_vector_m)
+        # if self.attn_choice==0:
+        #     z = edges.src['h']
+        # elif self.attn_choice in [1,3]:
+        #     z = th.cat((self.mlp_type(edges.dst[self.feat_name2]),self.mlp_pos(edges.data['bit_position'].unsqueeze(1)), edges.src['h']), dim=1)
+        # elif self.attn_choice in [2,4]:
+        #     z = th.cat((self.mlp_key(th.cat((edges.dst[self.feat_name2],edges.data['bit_position'].unsqueeze(1)),dim=1)), edges.src['h']), dim=1)
+        #
 
-        if self.agg_choice in [0,2]:
-            m = edges.src['h']
-        elif self.agg_choice in [1,3]:
-            m = th.cat((edges.src['h'],edges.data['bit_position'].unsqueeze(1)),dim=1)
+        # if self.agg_choice in [0,2]:
+        #     m = edges.src['h']
+        # elif self.agg_choice in [1,3]:
+        #     m = th.cat((edges.src['h'],edges.data['bit_position'].unsqueeze(1)),dim=1)
+
+        z = th.cat((self.mlp_type(edges.dst[self.feat_name2]), self.mlp_pos(edges.data['bit_position'].unsqueeze(1)),
+                    edges.src['h']), dim=1)
+        e = th.matmul(z, self.attention_vector_m)
+        m = th.cat((edges.src['h'], edges.data['bit_position'].unsqueeze(1)), dim=1)
 
         return {'m':m,'attn_e':e}
 
@@ -186,6 +162,7 @@ class TimeConv(nn.Module):
         h = th.sum(alpha*nodes.mailbox['m'],dim=1)
 
         return {'neigh':h}
+
 
     def reduce_func_smoothmax(self, nodes):
         msg = nodes.mailbox['m']
@@ -212,25 +189,20 @@ class TimeConv(nn.Module):
                     graph.apply_nodes(self.nodes_func_pi,nodes)
                 # for other nodes
                 elif self.flag_attn:
-                    #graph.pull(nodes, self.message_func_attn, self.reduce_func_attn, self.nodes_func)
                     if graph_info['is_heter']:
                         nodes_gate = nodes[isGate_mask]
                         nodes_module = nodes[isModule_mask]
-                        message_func_gate = self.message_func_attn_gate if self.attn_choice in [3,4] else fn.copy_src('h', 'm')
-                        reduce_func_gate = self.reduce_func_attn if self.attn_choice in [3,4] else fn.mean('m', 'neigh')
+                        message_func_gate = self.message_func_attn_gate if self.attn_choice==0 else fn.copy_src('h', 'm')
+                        reduce_func_gate = self.reduce_func_attn if self.attn_choice==0 else self.reduce_func_smoothmax
 
                         if len(nodes_gate)!=0: graph.pull(nodes_gate, message_func_gate, reduce_func_gate, self.nodes_func_gate, etype='intra_gate')
                         if len(nodes_module)!=0: graph.pull(nodes_module, self.message_func_attn_module, self.reduce_func_attn, self.nodes_func_module, etype='intra_module')
                     else:
                         graph.pull(nodes, self.message_func_attn, self.reduce_func_attn, self.nodes_func)
                 else:
-                    #reduce_func = fn.max('m', 'neigh')
-                    #reduce_func = fn.mean('m', 'neigh')
-                    #reduce_func = self.reduce_func_smoothmax
                     if graph_info['is_heter']:
                         nodes_gate = nodes[isGate_mask]
                         nodes_module = nodes[isModule_mask]
-
                         if len(nodes_gate)!=0: graph.pull(nodes_gate, fn.copy_src('h', 'm'), fn.mean('m', 'neigh'), self.nodes_func_gate, etype='intra_gate')
                         if len(nodes_module)!=0: graph.pull(nodes_module, fn.copy_src('h', 'm'), fn.mean('m', 'neigh'), self.nodes_func_module, etype='intra_module')
                     else:
