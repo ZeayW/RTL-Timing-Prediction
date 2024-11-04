@@ -300,9 +300,9 @@ class TimeConv(nn.Module):
                 if self.pi_choice==0:
                     # PIs_delay = graph.ndata['delay'][PIs_mask]
                     # pi2po_delay = th.matmul(th.transpose(PIs_prob, 0, 1), PIs_delay)
-                    h_pi = weighted_PIdelay
+                    #h_pi = weighted_PIdelay
                     #h_pi = critical_PIdelay
-                    #h_pi = th.cat((critical_PIdelay,weighted_PIdelay),dim=1)
+                    h_pi = th.cat((critical_PIdelay,weighted_PIdelay),dim=1)
                     h_pi = self.mlp_global_pi(h_pi)
                 elif self.pi_choice==1:
                     h_pi = graph.ndata['h'][PIs_mask][POs_argmaxPI]
@@ -310,6 +310,10 @@ class TimeConv(nn.Module):
 
                 else:
                     assert False
+
+                #rst = self.mlp_out_new(h)
+                #return rst
+                
                 if self.flag_filter:
                     # h_critical = th.cat([h[critical_po_mask], h_pi], dim=1)
                     # rst[critical_po_mask] = self.mlp_out_new(h_critical)

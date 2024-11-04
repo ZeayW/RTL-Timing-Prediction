@@ -138,11 +138,11 @@ def test(model,test_data,test_idx_loader):
 
             # if options.target_base: num_cases = 1
 
-            for i in range(1,num_cases):
+            for i in range(num_cases):
                 po_labels, pi_delays = None,None
                 for data in sampled_data:
 
-                    if options.target_redisual:
+                    if options.target_residual:
                         PIs_delay,_, POs_label = data['delay-label_pairs'][i]
                     else:
                         PIs_delay, POs_label, _ = data['delay-label_pairs'][i]
@@ -364,9 +364,10 @@ if __name__ == "__main__":
             if options.flag_reverse:
                 model.load_state_dict(th.load(options.pretrain_dir))
             if options.flag_reverse:
-                if options.pi_choice == 0: model.mlp_global_pi = MLP(1, int(options.hidden_dim / 2), options.hidden_dim)
+                if options.pi_choice == 0: model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
                 model.mlp_out_new =  MLP(options.out_dim,options.hidden_dim,1)
             model = model.to(device)
+
             print('seed:', seed)
             train(model)
 
