@@ -13,7 +13,7 @@ def get_options(args=None):
     parser.add_argument('--flag_filter', action='store_true')
     parser.add_argument('--flag_global', action='store_true')
     parser.add_argument('--flag_attn',action='store_true')
-    parser.add_argument('--target_base', action='store_true', help=('set the prediction target as the base delay (with all zero input delay)'))
+    parser.add_argument('--target_residual', action='store_true', help=('set the prediction target as the redisual delay'))
     parser.add_argument('--num_fold',type=int,default=5,help=('number of folds (only vaild for train_kfold)'))
     parser.add_argument('--rawdata_path', type=str, help='the directory that contains the raw dataset. Type: str')
     parser.add_argument("--checkpoint",type=str,help= "checkpoint to save the results and logs")
@@ -29,5 +29,6 @@ def get_options(args=None):
     parser.add_argument('--data_savepath',type=str,help='the directory that contains the dataset. Type: str',default='../data/arith_blocks')
     parser.add_argument('--predict_path',type=str,help='the directory used to save the prediction result. Type: str',default='../prediction/example')
     options = parser.parse_args(args)
+
 
     return options
