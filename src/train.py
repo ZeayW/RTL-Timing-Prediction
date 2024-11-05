@@ -331,7 +331,7 @@ if __name__ == "__main__":
         input_options = options
         options = th.load('../checkpoints/{}/options.pkl'.format(options.checkpoint))
         options.data_savepath = input_options.data_savepath
-        options.target_redisual = input_options.target_residual
+        options.target_residual = input_options.target_residual
         #options.flag_filter = input_options.flag_filter
         options.flag_reverse = input_options.flag_reverse
         options.pi_choice = input_options.pi_choice
@@ -364,7 +364,7 @@ if __name__ == "__main__":
             if options.flag_reverse:
                 model.load_state_dict(th.load(options.pretrain_dir))
             if options.flag_reverse:
-                if options.pi_choice == 0: model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
+                if options.pi_choice == 0: model.mlp_global_pi = MLP(4, int(options.hidden_dim / 2), options.hidden_dim)
                 model.mlp_out_new =  MLP(options.out_dim,options.hidden_dim,1)
             model = model.to(device)
 

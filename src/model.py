@@ -191,8 +191,18 @@ class TimeConv(nn.Module):
 
         prob = edges.src['hp'] * edges.data['weight']
 
-        return {'mp':prob}
+        # dst = edges.src['hd'] + 1
+        # dst_g = edges.src['hdg']
+        # dst_m = edges.src['hdm']
+        # dst_m[edges.src['is_module']==1] = dst_m[edges.src['is_module']==1] + 1
+        # dst_g[edges.src['is_module'] == 0] = dst_g[edges.src['is_module'] == 0] + 1
 
+        return {'mp': prob, 'dst': edges.src['hd'] + 1}
+        #return {'mp':prob,'dst':edges.src['hd']+1,'dst_m':dst_m,'dst_g':dst_g}
+
+    def reduce_func_reverse(self,nodes):
+        #print(th.max(nodes.mailbox['dst'],dim=1).values,len(nodes))
+        return {'hp':th.sum(nodes.mailbox['mp'],dim=1),'hd':th.max(nodes.mailbox['dst'],dim=1).values}
 
     def nodes_func_pi(self,nodes):
         h = self.mlp_pi(nodes.data['delay'])
@@ -202,9 +212,11 @@ class TimeConv(nn.Module):
         graph.edges['reverse'].data['weight'] = th.cat((graph.edges['intra_gate'].data['weight'].unsqueeze(1),graph.edges['intra_module'].data['weight']))
 
         graph.ndata['hp'] = th.zeros((graph.number_of_nodes(),len(POs)), dtype=th.float).to(device)
+        graph.ndata['hd'] = -1000*th.ones((graph.number_of_nodes(), len(POs)), dtype=th.float).to(device)
         for i,po in enumerate(POs):
             # if not self.flag_filter or predicted_labels_l[i]>2:
             graph.ndata['hp'][po][i] = 1
+            graph.ndata['hd'][po][i] = 0
         topo_r = gen_topo(graph,flag_reverse=True)
         topo_r = [l.to(device) for l in topo_r]
 
@@ -215,11 +227,11 @@ class TimeConv(nn.Module):
             #     if len(graph.in_edges(po,form='eid',etype='intra_gate')) + len(graph.in_edges(po,form='eid',etype='intra_module'))==0:
             #         new_PIs.append(po)
             for i, nodes in enumerate(topo_r[1:]):
-                graph.pull(nodes, self.message_func_reverse, fn.sum('mp', 'hp'), etype='reverse')
+                graph.pull(nodes, self.message_func_reverse, self.reduce_func_reverse, etype='reverse')
                 # for n in nodes.cpu().numpy().tolist():
                 #     if len(graph.in_edges(n,form='eid',etype='intra_gate')) + len(graph.in_edges(n,form='eid',etype='intra_module'))==0:
                 #         new_PIs.append(n)
-            return graph.ndata['hp']
+            return graph.ndata['hp'],graph.ndata['hd']
 
     def forward(self, graph,graph_info):
         topo = graph_info['topo']
@@ -286,24 +298,46 @@ class TimeConv(nn.Module):
                 # if self.flag_filter:
                 #     POs = POs[critical_po_mask]
                 POs = POs.detach().cpu().numpy().tolist()
-                nodes_prob = self.prop_backward(graph,POs)
+                nodes_prob,nodes_dst = self.prop_backward(graph,POs)
+                nodes_dst[nodes_dst<-100] = 0
 
                 #PIs_mask = graph.ndata['is_pi'] == 1
                 #PIs_mask = th.logical_or(graph.ndata['is_pi'] == 1, graph.ndata['is_module'] == 1)
+                module_mask = graph.ndata['is_module'] == 1
+                modules_prob = nodes_prob[module_mask]
+                POs_moduleprob = th.transpose(modules_prob, 0, 1)
+                h_module = th.matmul(POs_moduleprob, graph.ndata['h'][module_mask])
+
                 PIs_mask = graph.ndata['is_pi'] == 1
-                PIs_prob = nodes_prob[PIs_mask]
-                POs_PIprob = th.transpose(PIs_prob, 0, 1)
-                POs_argmaxPI = th.argmax(POs_PIprob,dim=1)
+                PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
+                POs_argmaxPI = th.argmax(PIs_prob,dim=1)
+                PIs_dst =th.transpose(nodes_dst[PIs_mask], 0, 1)
                 critical_PIdelay = graph.ndata['delay'][PIs_mask][POs_argmaxPI]
-                weighted_PIdelay = th.matmul(POs_PIprob, graph.ndata['delay'][PIs_mask])
+                weighted_PIdelay = th.matmul(PIs_prob, graph.ndata['delay'][PIs_mask])
+                critical_PIdst = th.gather(PIs_dst,dim=1,index=POs_argmaxPI.unsqueeze(-1))
+                weighted_PIdst = th.sum(PIs_prob*PIs_dst,dim=1).unsqueeze(-1)
+                #print(weighted_PIdelay.shape,weighted_PIdst.shape)
+                critical_PIinfo = critical_PIdelay
+                weighted_PIinfo = critical_PIdelay
+                critical_PIinfo = th.cat((critical_PIdelay,critical_PIdst),dim=1)
+                weighted_PIinfo = th.cat((weighted_PIdelay,weighted_PIdst),dim=1)
+
+                # critical_PIdelay = critical_PIdelay.squeeze(1).detach().cpu().numpy().tolist()
+                # weighted_PIdelay = weighted_PIdelay.squeeze(1).detach().cpu().numpy().tolist()
+                # critical_PIdst = critical_PIdst.squeeze(1).detach().cpu().numpy().tolist()
+                # weighted_PIdst = weighted_PIdst.squeeze(1).detach().cpu().numpy().tolist()
+                # label = graph_info['labels'].squeeze(1).detach().cpu().numpy().tolist()
+                # for i in range(len(POs)):
+                #     print('{} {:.2f} {} {:.2f} {}'.format(critical_PIdelay[i],weighted_PIdelay[i],critical_PIdst[i],weighted_PIdst[i],label[i]))
 
                 if self.pi_choice==0:
                     # PIs_delay = graph.ndata['delay'][PIs_mask]
                     # pi2po_delay = th.matmul(th.transpose(PIs_prob, 0, 1), PIs_delay)
                     #h_pi = weighted_PIdelay
                     #h_pi = critical_PIdelay
-                    h_pi = th.cat((critical_PIdelay,weighted_PIdelay),dim=1)
+                    h_pi = th.cat((critical_PIinfo,weighted_PIinfo),dim=1)
                     h_pi = self.mlp_global_pi(h_pi)
+
                 elif self.pi_choice==1:
                     h_pi = graph.ndata['h'][PIs_mask][POs_argmaxPI]
                     #h_pi = th.matmul(POs_PIprob, graph.ndata['h'][PIs_mask])
@@ -313,7 +347,7 @@ class TimeConv(nn.Module):
 
                 #rst = self.mlp_out_new(h)
                 #return rst
-                
+
                 if self.flag_filter:
                     # h_critical = th.cat([h[critical_po_mask], h_pi], dim=1)
                     # rst[critical_po_mask] = self.mlp_out_new(h_critical)
@@ -323,7 +357,9 @@ class TimeConv(nn.Module):
                 else:
                     # h = th.cat([h, h_pi], dim=1)
                     # rst = self.mlp_out_new(h)
-                    rst = rst + self.mlp_out_new(h_pi)
+                    #h_global = th.cat([h_pi, h_module], dim=1)
+                    h_global = h_pi
+                    rst = rst + self.mlp_out_new(h_global)
                     rst = self.activation(rst)
 
 
