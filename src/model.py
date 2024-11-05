@@ -311,16 +311,16 @@ class TimeConv(nn.Module):
                 PIs_mask = graph.ndata['is_pi'] == 1
                 PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
                 POs_argmaxPI = th.argmax(PIs_prob,dim=1)
-                PIs_dst =th.transpose(nodes_dst[PIs_mask], 0, 1)
+                #PIs_dst =th.transpose(nodes_dst[PIs_mask], 0, 1)
                 critical_PIdelay = graph.ndata['delay'][PIs_mask][POs_argmaxPI]
                 weighted_PIdelay = th.matmul(PIs_prob, graph.ndata['delay'][PIs_mask])
-                critical_PIdst = th.gather(PIs_dst,dim=1,index=POs_argmaxPI.unsqueeze(-1))
-                weighted_PIdst = th.sum(PIs_prob*PIs_dst,dim=1).unsqueeze(-1)
+                #critical_PIdst = th.gather(PIs_dst,dim=1,index=POs_argmaxPI.unsqueeze(-1))
+                #weighted_PIdst = th.sum(PIs_prob*PIs_dst,dim=1).unsqueeze(-1)
                 #print(weighted_PIdelay.shape,weighted_PIdst.shape)
                 critical_PIinfo = critical_PIdelay
                 weighted_PIinfo = critical_PIdelay
-                critical_PIinfo = th.cat((critical_PIdelay,critical_PIdst),dim=1)
-                weighted_PIinfo = th.cat((weighted_PIdelay,weighted_PIdst),dim=1)
+                #critical_PIinfo = th.cat((critical_PIdelay,critical_PIdst),dim=1)
+                #weighted_PIinfo = th.cat((weighted_PIdelay,weighted_PIdst),dim=1)
 
                 # critical_PIdelay = critical_PIdelay.squeeze(1).detach().cpu().numpy().tolist()
                 # weighted_PIdelay = weighted_PIdelay.squeeze(1).detach().cpu().numpy().tolist()

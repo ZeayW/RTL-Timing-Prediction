@@ -214,20 +214,20 @@ def train(model):
     print("Data successfully loaded")
 
     # set the optimizer
-    if options.flag_reverse and options.pi_choice==0:
-        optim = th.optim.Adam(
-             itertools.chain(model.mlp_global_pi.parameters(),model.mlp_out_new.parameters()),
-             options.learning_rate, weight_decay=options.weight_decay
-        )
-    elif options.flag_reverse and options.pi_choice==1:
-        optim = th.optim.Adam(
-            model.mlp_out.parameters(),
-            options.learning_rate, weight_decay=options.weight_decay
-        )
-    else:
-        optim = th.optim.Adam(
-            model.parameters(), options.learning_rate, weight_decay=options.weight_decay
-        )
+    # if options.flag_reverse and options.pi_choice==0:
+    #     optim = th.optim.Adam(
+    #          itertools.chain(model.mlp_global_pi.parameters(),model.mlp_out_new.parameters()),
+    #          options.learning_rate, weight_decay=options.weight_decay
+    #     )
+    # elif options.flag_reverse and options.pi_choice==1:
+    #     optim = th.optim.Adam(
+    #         model.mlp_out.parameters(),
+    #         options.learning_rate, weight_decay=options.weight_decay
+    #     )
+    # else:
+    #     optim = th.optim.Adam(
+    #         model.parameters(), options.learning_rate, weight_decay=options.weight_decay
+    #     )
     model.train()
 
 
@@ -238,6 +238,33 @@ def train(model):
     for epoch in range(options.num_epoch):
         print('Epoch {} ------------------------------------------------------------'.format(epoch+1))
         total_num,total_loss, total_r2 = 0,0.0,0
+
+        if not options.flag_reverse:
+            optim = th.optim.Adam(
+                model.parameters(), options.learning_rate, weight_decay=options.weight_decay
+            )
+        elif epoch % 2 ==1:
+            optim = th.optim.Adam(
+                itertools.chain(model.mlp_pi.parameters(), model.mlp_neigh_gate.parameters(),
+                                model.mlp_neigh_module.parameters(), model.mlp_type.parameters(),
+                                model.mlp_pos.parameters()), options.learning_rate, weight_decay=options.weight_decay
+            )
+            model.flag_reverse = False
+        elif options.pi_choice==0:
+            optim = th.optim.Adam(
+                itertools.chain(model.mlp_global_pi.parameters(), model.mlp_out_new.parameters()),
+                options.learning_rate, weight_decay=options.weight_decay
+            )
+            model.flag_reverse = True
+        elif options.pi_choice==1:
+            optim = th.optim.Adam(
+                model.mlp_out.parameters(),
+                options.learning_rate, weight_decay=options.weight_decay
+            )
+            model.flag_reverse = True
+        else:
+            assert False
+
 
         for batch, idxs in enumerate(train_idx_loader):
             sampled_data = []
@@ -364,7 +391,7 @@ if __name__ == "__main__":
             if options.flag_reverse:
                 model.load_state_dict(th.load(options.pretrain_dir))
             if options.flag_reverse:
-                if options.pi_choice == 0: model.mlp_global_pi = MLP(4, int(options.hidden_dim / 2), options.hidden_dim)
+                if options.pi_choice == 0: model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
                 model.mlp_out_new =  MLP(options.out_dim,options.hidden_dim,1)
             model = model.to(device)
 
