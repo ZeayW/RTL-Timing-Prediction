@@ -3,6 +3,7 @@ import argparse
 
 def get_options(args=None):
     parser = argparse.ArgumentParser()
+    parser.add_argument('--flag_path_supervise', action='store_true')
     parser.add_argument('--pretrain_dir', type=str)
     parser.add_argument('--pi_choice',type=int,default=0)
     parser.add_argument('--agg_choice', type=int,default=0)
@@ -25,7 +26,7 @@ def get_options(args=None):
     parser.add_argument("--out_dim", type=int, help='the dimension of the output embedding. Type: int', default=256)
     parser.add_argument("--hidden_dim", type=int, help='the dimension of the intermediate GNN layers. Type: int',default=256)
     parser.add_argument("--weight_decay", type=float, help='weight decay. Type: float',default=0)
-    parser.add_argument("--gpu",type=int,help='index of gpu. Type: int',default=0)
+    parser.add_argument("--gpu",type=int,help='index of gpu. Type: int')
     parser.add_argument('--data_savepath',type=str,help='the directory that contains the dataset. Type: str',default='../data/arith_blocks')
     parser.add_argument('--predict_path',type=str,help='the directory used to save the prediction result. Type: str',default='../prediction/example')
     options = parser.parse_args(args)

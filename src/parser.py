@@ -4,9 +4,8 @@ import os
 import pickle
 from options import get_options
 from random import shuffle
-from model import GraphProp
 import tee
-
+from utils import *
 
 options = get_options()
 rawdata_path = options.rawdata_path
@@ -18,6 +17,13 @@ ntype_file = os.path.join(data_savepath,'ntype2id.pkl')
 ntype2id = {'input':0, "1'b0":1, "1'b1":2}
 ntype2id_gate = {'input':0, "1'b0":1, "1'b1":2}
 ntype2id_module = {}
+
+def get_nodename(nodes_name,nid):
+    if nodes_name[nid][1] is not None:
+        return nodes_name[nid][1]
+    else:
+        return nodes_name[nid][0]
+
 
 class GraphInfo:
     def __init__(self,design_name,case_name):
@@ -46,62 +52,6 @@ class GraphInfo:
             'POs_feat':self.POs_feat,
 
         }
-
-def gen_topo(graph):
-
-    src_module, dst_module = graph.edges(etype='intra_module', form='uv')
-    src_gate, dst_gate = graph.edges(etype='intra_gate', form='uv')
-    g = dgl.graph((th.cat([src_module,src_gate]), th.cat([dst_module,dst_gate])))
-    topo = dgl.topological_nodes_generator(g)
-
-    return topo
-
-def heter2homo(graph):
-    src_module, dst_module = graph.edges(etype='intra_module', form='uv')
-    src_gate, dst_gate = graph.edges(etype='intra_gate', form='uv')
-    homo_g = dgl.graph((th.cat([src_module, src_gate]), th.cat([dst_module, dst_gate])))
-
-    for key, data in graph.ndata.items():
-        homo_g.ndata[key] = graph.ndata[key]
-
-    return homo_g
-def reverse_graph(g):
-    edges = g.edges()
-    reverse_edges = (edges[1], edges[0])
-
-    rg = dgl.graph(reverse_edges, num_nodes=g.num_nodes())
-    for key, value in g.ndata.items():
-        # print(key,value)
-        rg.ndata[key] = value
-    for key, value in g.edata.items():
-        # print(key,value)
-        rg.edata[key] = value
-    return rg
-
-def graph_filter(graph):
-    homo_graph = heter2homo(graph)
-    homo_graph_r = reverse_graph(homo_graph)
-    topo_r = dgl.topological_nodes_generator(homo_graph_r)
-    graphProp_model = GraphProp('temp')
-    homo_graph_r.ndata['temp'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-    homo_graph_r.ndata['temp'][graph.ndata['is_po'] == 1] = 1
-    fitler_mask = graphProp_model(homo_graph_r,topo_r).squeeze(1)
-    #print(fitler_mask.shape,th.sum(fitler_mask))
-    remove_nodes = th.tensor(range(graph.number_of_nodes()))[fitler_mask==0]
-    remain_nodes = th.tensor(range(graph.number_of_nodes()))[fitler_mask==1]
-    #print('\t filtering: remove {} useless nodes'.format(len(remove_nodes)))
-
-    return remain_nodes,remove_nodes
-
-
-def filter_list(l,idxs):
-    new_l = []
-    for i in idxs:
-        new_l.append(l[i])
-
-    return new_l
-
-
 
 class Parser:
     def __init__(self,subdir,design_path):
@@ -441,9 +391,29 @@ class Parser:
         print('\t pre-filter: #node:{}, #edges:{}, {}'.format(graph.number_of_nodes(),
                                                                graph.number_of_edges('intra_gate'),
                                                                graph.number_of_edges('intra_module')))
+
+
         remain_nodes,remove_nodes = graph_filter(graph)
         remain_nodes = remain_nodes.numpy().tolist()
         graph.remove_nodes(remove_nodes)
+
+
+        # virtual_edges = ([],[])
+        # for po,pis in po2pis.items():
+        #     virtual_edges[0].extend(pis)
+        #     virtual_edges[1].extend([po]*len(pis))
+        #
+        # new_graph = dgl.heterograph(
+        # {('node', 'intra_module', 'node'): graph.edges(etype='intra_module'),
+        #  ('node', 'intra_gate', 'node'): graph.edges(etype='intra_gate'),
+        #  ('node', 'skip_connect', 'node'): (th.tensor(virtual_edges[0]),th.tensor(virtual_edges[1]))
+        #  }
+        # )
+        # print(new_graph)
+        #
+        # exit()
+
+        is_module = filter_list(is_module,remain_nodes)
         nodes_type = filter_list(nodes_type,remain_nodes)
         nodes_name = filter_list(nodes_name, remain_nodes)
 
@@ -466,6 +436,22 @@ class Parser:
                     PO2level[n] = l
         POs_level = [PO2level[n] for n in POs_nid]
 
+        # remove_idxs = []
+        # for i,level in enumerate(POs_level):
+        #     nid = POs_nid[i]
+        #     PO_name = POs_name[i]
+        #     PO_label = self.po_labels[PO_name]
+        #     if PO_label<=1 and level>=5:
+        #         print('\t removing PO:',PO_name,PO_label,level)
+        #         graph.ndata['is_po'][nid] = 0
+        #         remove_idxs.append(i)
+        #
+        # for i in remove_idxs:
+        #     del POs_level[i]
+        #     del POs_name[i]
+        #     del POs_nid[i]
+
+
         graph_info['topo'] = topo
         graph_info['ntype'] = nodes_type
         graph_info['nodes_name'] = nodes_name
@@ -478,6 +464,14 @@ class Parser:
         graph_info['design_name'] = self.design_name
 
 
+        # nodes_delay = [get_intranode_delay(nodes_type[n],is_module[n]) for n in range(len(nodes_type))]
+        # graph.ndata['d'] = th.tensor(nodes_delay,dtype=th.float).unsqueeze(1)
+        # po2pis = find_faninPIs(graph)
+        # po2pis = {get_nodename(nodes_name,po): [nodes_name[pi][0] for pi in pis] for (po,pis) in po2pis.items()}
+        # print(po2pis)
+        # exit()
+        # print(graph.etypes)
+        # exit()
         # POs_level_min = []     # record the shortest path length from an PI to any PI
         # for po in POs:
         #     l = 0
@@ -503,6 +497,9 @@ class Parser:
         # print('\t',graph_info)
         #print('\t POs: max levels={}'.format(POs_level))
         #print('\t      min_levels={}'.format(POs_level_min))
+
+
+
 
         return graph, graph_info
 
@@ -587,6 +584,7 @@ def main():
         for design_name, case_indexs in design2idx.items():
             if int(design_name.split('_')[-1]) in [54,96,131,300,327, 334, 397]:
                 continue
+
             if 0 not in case_indexs:
                 print("skip {}, due to the miss of idx 0".format(design_name))
 
@@ -632,9 +630,21 @@ def main():
                     POs_label.append(po_labels[node])
                     POs_label_residual.append(po_labels_residual[node])
 
+
+
+                nodes_delay = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
+                nodes_delay[graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay, dtype=th.float).unsqueeze(1)
+                graph.ndata['delay'] = nodes_delay
+                # po2pis = find_faninPIs(graph, graph_info['ntype'])
+                # po2pis = {get_nodename(graph_info['nodes_name'], po): (distance,[graph_info['nodes_name'][pi][0] for pi in pis])
+                #           for po, (distance,pis) in po2pis.items()}
+                # print(design_name,idx,po2pis)
+                pi2po_edges,edges_weight = get_pi2po_edges(graph,graph_info)
+
+
                 #print(idx,len(PIs_delay),th.sum(graph.ndata['is_pi']).item(),len(POs_label),th.sum(graph.ndata['is_po']).item())
                 assert len(PIs_delay) == th.sum(graph.ndata['is_pi']).item() and len(POs_label) == th.sum(graph.ndata['is_po']).item()
-                graph_info['delay-label_pairs'].append((PIs_delay, POs_label,POs_label_residual))
+                graph_info['delay-label_pairs'].append((PIs_delay, POs_label,POs_label_residual,pi2po_edges,edges_weight))
 
 
 

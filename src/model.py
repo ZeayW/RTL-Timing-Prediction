@@ -6,6 +6,12 @@ from dgl import function as fn
 from utils import *
 from train import device
 
+def get_nodename(nodes_name,nid):
+    if nodes_name[nid][1] is not None:
+        return nodes_name[nid][1]
+    else:
+        return nodes_name[nid][0]
+
 class MLP(th.nn.Module):
     def __init__(self, *sizes, negative_slope=0.1, batchnorm=False, dropout=False):
         super().__init__()
@@ -31,6 +37,8 @@ class TimeConv(nn.Module):
                  pi_choice=0,
                  agg_choice=0,
                  attn_choice=1,
+                 flag_train=True,
+                 flag_path_supervise=False,
                  flag_filter=False,
                  flag_reverse=False,
                  flag_splitfeat=False,
@@ -40,6 +48,8 @@ class TimeConv(nn.Module):
         super(TimeConv, self).__init__()
 
         self.pi_choice = pi_choice
+        self.flag_train = flag_train
+        self.flag_path_supervise = flag_path_supervise
         self.flag_filter = flag_filter
         self.flag_reverse = flag_reverse
         self.flag_global = flag_global
@@ -137,37 +147,72 @@ class TimeConv(nn.Module):
         z = th.cat((self.mlp_type(edges.dst[self.feat_name2]), self.mlp_pos(edges.data['bit_position'].unsqueeze(1)),
                     edges.src['h']), dim=1)
         e = th.matmul(z, self.attention_vector_m)
+        e = e - th.max(e, dim=1).values.unsqueeze(1)
+        #print(th.max(e))
+        #e = e- th.max(e)
 
         return {'attn_e':e}
 
     def edge_msg_module_weight(self,edges):
         normalized_attn_e = th.exp(edges.data['attn_e']) / edges.dst['attn_sum'].squeeze(2)
 
+        if th.isnan(normalized_attn_e).any() or th.isinf(normalized_attn_e).any():
+            print('module weight')
+            print('isnan:{}, isinf:{}'.format(th.isnan(normalized_attn_e).any(),th.isinf(normalized_attn_e).any()))
+            #print('\t attn_e',normalized_attn_e.detach().cpu().numpy().tolist())
+            print('\t isinf fenzi',th.isinf(th.exp(edges.data['attn_e'])).any())
+            print('\t isinf fenmu', th.isinf(edges.dst['attn_sum']).any())
+            print('\t #0 in fenmu',len(edges.dst['attn_sum'][edges.dst['attn_sum']==0]))
+            print('\t #0 in fenzi', len(th.exp(edges.data['attn_e'])[th.exp(edges.data['attn_e']) == 0]))
+            #print(th.exp(edges.data['attn_e']).detach().cpu().numpy().tolist())
+
+            exit()
         return {'weight': normalized_attn_e}
 
     def message_func_module(self,edges):
         m = th.cat((edges.src['h'], edges.data['bit_position'].unsqueeze(1)), dim=1)
         #return {'m': m, 'attn_e': edges.data['attn_e']}
 
-        z = th.cat((self.mlp_type(edges.dst[self.feat_name2]), self.mlp_pos(edges.data['bit_position'].unsqueeze(1)),
-                    edges.src['h']), dim=1)
-        e = th.matmul(z, self.attention_vector_m)
-        return {'m':m,'attn_e':e}
+        # z = th.cat((self.mlp_type(edges.dst[self.feat_name2]), self.mlp_pos(edges.data['bit_position'].unsqueeze(1)),
+        #             edges.src['h']), dim=1)
+        # e = th.matmul(z, self.attention_vector_m)
+        #e = e - th.max(e, dim=1).values.unsqueeze(1)
+        return {'m':m,'attn_e':edges.data['attn_e']}
 
 
     def reduce_func_attn(self,nodes):
+        #attn_e = nodes.mailbox['attn_e'] - th.max(nodes.mailbox['attn_e'],dim=1)
+        # print(th.max(nodes.mailbox['attn_e'],dim=1).value().shape)
         attn_sum = th.sum(th.exp(nodes.mailbox['attn_e']),dim=1).unsqueeze(1)
+        # print(len(nodes))
+        # print(nodes.mailbox['attn_e'].shape)
+        # print(attn_sum.shape)
+        # exit()
         # alpha = nodes.mailbox['attn_e'] / attn_sum
-
         alpha = th.softmax(nodes.mailbox['attn_e'], dim=1)
         h = th.sum(alpha*nodes.mailbox['m'],dim=1)
+
 
         return {'neigh':h,'attn_sum':attn_sum}
 
 
     def edge_msg_gate_weight(self,edges):
 
-        weight = th.mean(th.exp(edges.src['h']) / edges.dst['exp_src_sum'],dim=1)
+        src_msg = edges.src['h'] - th.max(edges.src['h'])
+        src_msg = edges.src['h'] - th.max(edges.src['h'],dim=1).values.unsqueeze(1)
+        #src_msg = edges.src['h'] - 1000
+        #src_msg = edges.src['h']
+        weight = th.mean(th.exp(src_msg) / edges.dst['exp_src_sum'],dim=1)
+
+        if th.isnan(weight).any():
+            print('gate weight')
+            print('isnan:{}, isinf:{}'.format(th.isnan(th.exp(src_msg)).any(),th.isinf(edges.dst['exp_src_sum']).any()))
+            print('\t isinf fenzi', th.isinf(th.exp(src_msg)).any())
+            print('\t isinf fenmu', th.isinf(edges.dst['exp_src_sum']).any())
+            print('\t #0 in fenmu', len(edges.dst['exp_src_sum'][edges.dst['exp_src_sum'] == 0]))
+            print('\t #0 in fenzi', len(th.exp(src_msg)[th.exp(src_msg)==0]))
+            exit()
+
 
         return {'weight': weight}
 
@@ -181,27 +226,49 @@ class TimeConv(nn.Module):
 
     def reduce_func_smoothmax(self, nodes):
         msg = nodes.mailbox['m']
+        #msg = msg - th.max(msg)
+        # msg = msg - 1000
         weight = th.softmax(msg, dim=1)
         #criticality = th.mean(weight,dim=2)
 
-        return {'neigh': (msg * weight).sum(1),'exp_src_sum':th.sum(th.exp(msg),dim=1)}
-
+        return {'neigh': (msg * weight).sum(1),'exp_src_sum':th.sum(th.exp(msg-th.max(msg,dim=1).values.unsqueeze(1)),dim=1)}
 
     def message_func_reverse(self,edges):
 
         prob = edges.src['hp'] * edges.data['weight']
 
+        if th.isinf(edges.data['weight']).any():
+            print('aaa')
+
+        if th.isnan(edges.src['hp']).any() or th.isinf(edges.src['hp']).any():
+            print('bbb')
+
+        if th.isnan(th.sum(prob, dim=1)).any():
+            print('ccc')
+            exit()
         # dst = edges.src['hd'] + 1
         # dst_g = edges.src['hdg']
         # dst_m = edges.src['hdm']
         # dst_m[edges.src['is_module']==1] = dst_m[edges.src['is_module']==1] + 1
         # dst_g[edges.src['is_module'] == 0] = dst_g[edges.src['is_module'] == 0] + 1
-
-        return {'mp': prob, 'dst': edges.src['hd'] + 1}
+        return {'mp':prob}
+        #return {'mp': prob, 'dst': edges.src['hd'] + 1}
         #return {'mp':prob,'dst':edges.src['hd']+1,'dst_m':dst_m,'dst_g':dst_g}
+
+    def message_func_loss(self, edges):
+
+        pi_prob = th.gather(edges.src['hp'],dim=1,index=edges.dst['id'])
+        # print('hp',edges.src['hp'][:10].detach().cpu().numpy().tolist())
+        # print('id',edges.dst['id'][:10].detach().cpu().numpy().tolist())
+        # print('prob',pi_prob[:10].detach().cpu().numpy().tolist())
+        # print('label',edges.data['prob'][:10])
+
+        return {'ml':pi_prob}
+        # return {'ml':th.abs(pi_prob-edges.data['prob'])}
 
     def reduce_func_reverse(self,nodes):
         #print(th.max(nodes.mailbox['dst'],dim=1).values,len(nodes))
+
         return {'hp':th.sum(nodes.mailbox['mp'],dim=1),'hd':th.max(nodes.mailbox['dst'],dim=1).values}
 
     def nodes_func_pi(self,nodes):
@@ -210,13 +277,13 @@ class TimeConv(nn.Module):
 
     def prop_backward(self,graph,POs):
         graph.edges['reverse'].data['weight'] = th.cat((graph.edges['intra_gate'].data['weight'].unsqueeze(1),graph.edges['intra_module'].data['weight']))
-
+        #print(th.isinf(graph.edges['intra_gate'].data['weight']).any(),th.isinf(graph.edges['intra_module'].data['weight']).any())
         graph.ndata['hp'] = th.zeros((graph.number_of_nodes(),len(POs)), dtype=th.float).to(device)
-        graph.ndata['hd'] = -1000*th.ones((graph.number_of_nodes(), len(POs)), dtype=th.float).to(device)
+        #graph.ndata['hd'] = -1000*th.ones((graph.number_of_nodes(), len(POs)), dtype=th.float).to(device)
         for i,po in enumerate(POs):
             # if not self.flag_filter or predicted_labels_l[i]>2:
             graph.ndata['hp'][po][i] = 1
-            graph.ndata['hd'][po][i] = 0
+            #graph.ndata['hd'][po][i] = 0
         topo_r = gen_topo(graph,flag_reverse=True)
         topo_r = [l.to(device) for l in topo_r]
 
@@ -227,11 +294,11 @@ class TimeConv(nn.Module):
             #     if len(graph.in_edges(po,form='eid',etype='intra_gate')) + len(graph.in_edges(po,form='eid',etype='intra_module'))==0:
             #         new_PIs.append(po)
             for i, nodes in enumerate(topo_r[1:]):
-                graph.pull(nodes, self.message_func_reverse, self.reduce_func_reverse, etype='reverse')
+                graph.pull(nodes, self.message_func_reverse, fn.sum('mp','hp'), etype='reverse')
                 # for n in nodes.cpu().numpy().tolist():
                 #     if len(graph.in_edges(n,form='eid',etype='intra_gate')) + len(graph.in_edges(n,form='eid',etype='intra_module'))==0:
                 #         new_PIs.append(n)
-            return graph.ndata['hp'],graph.ndata['hd']
+            return graph.ndata['hp']
 
     def forward(self, graph,graph_info):
         topo = graph_info['topo']
@@ -292,21 +359,62 @@ class TimeConv(nn.Module):
 
             rst = self.mlp_out(h)
 
+
             if self.flag_reverse:
                 POs = th.tensor(range(graph.number_of_nodes())).to(device)[graph.ndata['is_po'] == 1]
                 critical_po_mask = rst.squeeze(1) > 10
                 # if self.flag_filter:
                 #     POs = POs[critical_po_mask]
                 POs = POs.detach().cpu().numpy().tolist()
-                nodes_prob,nodes_dst = self.prop_backward(graph,POs)
-                nodes_dst[nodes_dst<-100] = 0
+                nodes_prob = self.prop_backward(graph,POs)
+
+                if self.flag_path_supervise:
+                    if not self.flag_train:
+                        return rst, 0
+                    else:
+                        graph.ndata['hp'] = nodes_prob
+                        graph.ndata['id'] = th.zeros((graph.number_of_nodes(),1), dtype=th.int64).to(device)
+                        graph.ndata['id'][POs] = th.tensor(range(len(POs)),dtype=th.int64).unsqueeze(-1).to(device)
+                        graph.pull(POs,self.message_func_loss,fn.sum('ml', 'loss'),etype='pi2po')
+                        #print([get_nodename(graph_info['nodes_name'],po) for po in POs])
+
+                        #PIs_mask = graph.ndata['is_pi'] == 1
+                        #PIs = th.tensor(range(graph.number_of_nodes())).to(device)[graph.ndata['is_pi'] == 1]
+                        #PIs = PIs.detach().cpu().numpy().tolist()
+                        #print('#PI:',len(PIs))
+                        #PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
+                        #print(PIs_prob.shape)
+                        # for i, po in enumerate(POs):
+                        #     pis_prob = PIs_prob[i]
+                            # print(get_nodename(graph_info['nodes_name'],po))
+                            # print('\t',[(graph_info['nodes_name'][pi][0],prob.item()) for pi,prob in zip(PIs,pis_prob)])
+                            # print('\t',th.max(pis_prob))
+                            # print('\t',th.sum(pis_prob))
+                        #POs_argmaxPI = th.argmax(PIs_prob, dim=1).cpu().numpy().tolist()
+
+                        #print([get_nodename(graph_info['nodes_name'],i) for i in POs_argmaxPI])
+
+
+                        #exit()
+                        path_loss = th.mean(graph.ndata['loss'][POs])
+
+                        if th.isnan(path_loss).any():
+                            #print(nodes_prob)
+                            print(len(nodes_prob),len(nodes_prob[th.isnan(nodes_prob)]))
+                            print(len(graph.ndata['loss'][POs][th.isnan(graph.ndata['loss'][POs])]))
+                            #print(graph.ndata['loss'][POs])
+
+                        return rst, path_loss
+
+                # nodes_dst[nodes_dst<-100] = 0
+
 
                 #PIs_mask = graph.ndata['is_pi'] == 1
                 #PIs_mask = th.logical_or(graph.ndata['is_pi'] == 1, graph.ndata['is_module'] == 1)
-                module_mask = graph.ndata['is_module'] == 1
-                modules_prob = nodes_prob[module_mask]
-                POs_moduleprob = th.transpose(modules_prob, 0, 1)
-                h_module = th.matmul(POs_moduleprob, graph.ndata['h'][module_mask])
+                #module_mask = graph.ndata['is_module'] == 1
+                #modules_prob = nodes_prob[module_mask]
+                #POs_moduleprob = th.transpose(modules_prob, 0, 1)
+                #h_module = th.matmul(POs_moduleprob, graph.ndata['h'][module_mask])
 
                 PIs_mask = graph.ndata['is_pi'] == 1
                 PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
@@ -318,7 +426,7 @@ class TimeConv(nn.Module):
                 #weighted_PIdst = th.sum(PIs_prob*PIs_dst,dim=1).unsqueeze(-1)
                 #print(weighted_PIdelay.shape,weighted_PIdst.shape)
                 critical_PIinfo = critical_PIdelay
-                weighted_PIinfo = critical_PIdelay
+                weighted_PIinfo = weighted_PIdelay
                 #critical_PIinfo = th.cat((critical_PIdelay,critical_PIdst),dim=1)
                 #weighted_PIinfo = th.cat((weighted_PIdelay,weighted_PIdst),dim=1)
 
@@ -363,10 +471,11 @@ class TimeConv(nn.Module):
                     rst = self.activation(rst)
 
 
+
             #print('g',num_gate,th.sum(graph.edges['intra_gate'].data['weight']))
             #print('m',num_module,th.sum(graph.edges['intra_module'].data['weight']))
 
-            return rst
+            return rst,None
 
 class GraphBackProp(nn.Module):
 

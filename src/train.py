@@ -27,15 +27,22 @@ Loss = nn.MSELoss()
 with open(os.path.join(options.data_savepath, 'ntype2id.pkl'), 'rb') as f:
     ntype2id,ntype2id_gate,ntype2id_module = pickle.load(f)
 # print(ntype2id,ntype2id_gate,ntype2id_module)
+# exit()
+
+data_path = options.data_savepath
+data_file = os.path.join(data_path, 'data.pkl')
+split_file = os.path.join(data_path, 'split.pkl')
+with open(data_file, 'rb') as f:
+    data_all = pickle.load(f)
+with open(split_file, 'rb') as f:
+    split_list = pickle.load(f)
 
 def load_data(usage):
     assert usage in ['train','val','test']
-    print("----------------Loading {} data----------------".format(usage))
-    data_path = options.data_savepath
-    data_file = os.path.join(data_path, 'data_{}.pkl'.format(usage))
 
-    with open(data_file, 'rb') as f:
-        data = pickle.load(f)
+    target_list = split_list[usage]
+    data = [d for d in data_all if d[1]['design_name'] in target_list]
+    print("------------Loading {}_data #{}-------------".format(usage,len(data)))
 
     loaded_data = []
     for  graph,graph_info in data:
@@ -59,21 +66,8 @@ def load_data(usage):
             print('skip',graph_info['design_name'])
             continue
 
-        new_delay_label_pairs = []
-        if options.flag_reverse:
-            r_graph = add_reverse_edges(graph)
-            for PIs_delay,POs_label,_ in graph_info['delay-label_pairs']:
-                pass
-            pass
-
-        PIs = list(th.tensor(range(graph.number_of_nodes()))[graph.ndata['is_pi'] == 1])
-        design_name = graph_info['design_name'].split('_')[-1]
-
-
-        PI_mask = list(range(len(PIs)))
-
         graph_info['graph'] = graph
-        graph_info['PI_mask'] = PI_mask
+        #graph_info['PI_mask'] = PI_mask
         #graph_info['delay-label_pairs'] = graph_info['delay-label_pairs'][1:]
         loaded_data.append(graph_info)
 
@@ -91,6 +85,7 @@ def init_model(options):
             infeat_dim1=len(ntype2id_gate),
             infeat_dim2=len(ntype2id_module),
             hidden_dim=options.hidden_dim,
+            flag_path_supervise=options.flag_path_supervise,
             flag_filter = options.flag_filter,
             flag_reverse=options.flag_reverse,
             flag_splitfeat=options.split_feat,
@@ -121,6 +116,7 @@ def test(model,test_data,test_idx_loader):
         POs_topo = None
 
 
+
         for batch, idxs in enumerate(test_idx_loader):
             sampled_data = []
             idxs = idxs.numpy().tolist()
@@ -135,24 +131,24 @@ def test(model,test_data,test_idx_loader):
             sampled_graphs = dgl.batch(graphs)
             if options.flag_reverse:
                 sampled_graphs = add_reverse_edges(sampled_graphs)
-
             # if options.target_base: num_cases = 1
-
+            #num_cases = 1
+            #print(data['design_name'])
             for i in range(num_cases):
+                #print('\tidx',i)
                 po_labels, pi_delays = None,None
                 for data in sampled_data:
 
                     if options.target_residual:
-                        PIs_delay,_, POs_label = data['delay-label_pairs'][i]
+                        PIs_delay,_, POs_label, pi2po_edges,edge_weights = data['delay-label_pairs'][i]
                     else:
-                        PIs_delay, POs_label, _ = data['delay-label_pairs'][i]
+                        PIs_delay, POs_label, _,pi2po_edges,edge_weights  = data['delay-label_pairs'][i]
 
                     graph = data['graph']
                     cur_po_labels =  th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
                     cur_po_labels[graph.ndata['is_po'] == 1] = th.tensor(POs_label, dtype=th.float).unsqueeze(-1)
                     cur_pi_delays = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-                    cur_pi_delays[graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay, dtype=th.float)[
-                        data['PI_mask']].unsqueeze(-1)
+                    cur_pi_delays[graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay, dtype=th.float).unsqueeze(1)
 
 
                     if po_labels is None:
@@ -176,7 +172,7 @@ def test(model,test_data,test_idx_loader):
                 cur_labels = sampled_graphs.ndata['label'][graphs_info['POs']].to(device)
                 graphs_info['labels'] = cur_labels
 
-                cur_labels_hat = model(sampled_graphs, graphs_info)
+                cur_labels_hat, path_loss = model(sampled_graphs, graphs_info)
                 if labels_hat is None:
                     labels_hat = cur_labels_hat
                     labels = cur_labels
@@ -194,6 +190,26 @@ def test(model,test_data,test_idx_loader):
         min_ratio = th.min(ratio)
         max_ratio = th.max(ratio)
 
+        # x = []
+        # y = []
+        # indexs = list(range(9,40))
+        # for i,r in enumerate(indexs):
+        #     r = r / 20
+        #     if i==0:
+        #         num = len(ratio[ratio<r+0.05])
+        #     elif i== len(indexs)-1:
+        #         num = len(ratio[ratio >= r])
+        #     else:
+        #         num = len(ratio[th.logical_and(ratio>=r,ratio<r+0.05)])
+        #     x.append(r)
+        #     y.append(num/len(ratio))
+        # #plt.bar(x,y)
+        # plt.xlabel('ratio')
+        # plt.ylabel('percent')
+        # plt.bar(x,y,width=0.03)
+        # #print(list(zip(x,y)))
+        #
+        # plt.savefig('bar.png')
         # max_label = max(th.max(labels_hat).item(),th.max(labels).item())
         # plt.xlim(0, max_label)  # 设定绘图范围
         # plt.ylim(0, max_label)
@@ -236,37 +252,45 @@ def train(model):
     cur_time = datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
     num_traindata = len(train_data)
     for epoch in range(options.num_epoch):
+        model.flag_train = True
         print('Epoch {} ------------------------------------------------------------'.format(epoch+1))
         total_num,total_loss, total_r2 = 0,0.0,0
 
-        if not options.flag_reverse:
+
+        if options.flag_path_supervise:
             optim = th.optim.Adam(
                 model.parameters(), options.learning_rate, weight_decay=options.weight_decay
             )
-        elif epoch % 2 ==1:
+        elif not options.flag_reverse:
+            optim = th.optim.Adam(
+                model.parameters(), options.learning_rate, weight_decay=options.weight_decay
+            )
+        elif epoch % 3 ==2:
             optim = th.optim.Adam(
                 itertools.chain(model.mlp_pi.parameters(), model.mlp_neigh_gate.parameters(),
                                 model.mlp_neigh_module.parameters(), model.mlp_type.parameters(),
                                 model.mlp_pos.parameters()), options.learning_rate, weight_decay=options.weight_decay
             )
-            model.flag_reverse = False
+
         elif options.pi_choice==0:
             optim = th.optim.Adam(
                 itertools.chain(model.mlp_global_pi.parameters(), model.mlp_out_new.parameters()),
                 options.learning_rate, weight_decay=options.weight_decay
             )
-            model.flag_reverse = True
+
         elif options.pi_choice==1:
             optim = th.optim.Adam(
                 model.mlp_out.parameters(),
                 options.learning_rate, weight_decay=options.weight_decay
             )
-            model.flag_reverse = True
+
         else:
             assert False
 
 
         for batch, idxs in enumerate(train_idx_loader):
+
+
             sampled_data = []
 
             idxs = idxs.numpy().tolist()
@@ -275,29 +299,50 @@ def train(model):
             for idx in idxs:
                 data = train_data[idx]
                 num_cases = min(num_cases,len(data['delay-label_pairs']))
-                shuffle(train_data[idx]['delay-label_pairs'])
+                #shuffle(train_data[idx]['delay-label_pairs'])
                 sampled_data.append(train_data[idx])
                 graphs.append(data['graph'])
             sampled_graphs = dgl.batch(graphs)
+
+            #
+            # sampled_data = [train_data[1]]
+            # sampled_graphs = train_data[1]['graph']
+            # print(train_data[1]['design_name'])
+
+            topo_levels = gen_topo(sampled_graphs)
             if options.flag_reverse:
                 sampled_graphs = add_reverse_edges(sampled_graphs)
 
             # if options.target_base: num_cases = 1
+
             for i in range(num_cases):
+                #print('\t idx',i)
                 po_labels, pi_delays = None,None
+                start_idx = 0
+                new_edges,new_edges_weight = ([],[]),[]
                 for data in sampled_data:
                     if options.target_residual:
-                        PIs_delay, _, POs_label = data['delay-label_pairs'][i]
+                        PIs_delay, _, POs_label,pi2po_edges,edges_weight = data['delay-label_pairs'][i]
                     else:
-                        PIs_delay, POs_label, _ = data['delay-label_pairs'][i]
+                        PIs_delay, POs_label, _,pi2po_edges,edges_weight = data['delay-label_pairs'][i]
 
                     graph = data['graph']
+
+                    # print(list(zip([get_nodename(data['nodes_name'],nid) for nid in pi2po_edges[0]],
+                    #                [get_nodename(data['nodes_name'],nid) for nid in pi2po_edges[1]])))
+                    # po2pis = find_faninPIs(graph.to(device),data)
+
+                    #print({get_nodename(data['nodes_name'],po): [data['nodes_name'][pi][0] for pi in pis] for po,(distance,pis) in po2pis.items()})
+
+                    new_edges[0].extend([nid+start_idx for nid in pi2po_edges[0]])
+                    new_edges[1].extend([nid + start_idx for nid in pi2po_edges[1]])
+                    new_edges_weight.extend(edges_weight)
+                    start_idx += graph.number_of_nodes()
+
                     cur_po_labels = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
                     cur_po_labels[graph.ndata['is_po'] == 1] = th.tensor(POs_label, dtype=th.float).unsqueeze(-1)
                     cur_pi_delays = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-                    cur_pi_delays[graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay, dtype=th.float)[
-                        data['PI_mask']].unsqueeze(-1)
-
+                    cur_pi_delays[graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay, dtype=th.float).unsqueeze(1)
                     if po_labels is None:
                         po_labels = cur_po_labels
                         pi_delays = cur_pi_delays
@@ -305,12 +350,19 @@ def train(model):
                         po_labels = th.cat((po_labels, cur_po_labels), dim=0)
                         pi_delays = th.cat((pi_delays, cur_pi_delays), dim=0)
 
+
+
+                if options.flag_path_supervise:
+                    new_edges_feat = {'prob': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1)}
+                    sampled_graphs = add_newEtype(sampled_graphs, 'pi2po', new_edges, new_edges_feat)
+
+
                 sampled_graphs = sampled_graphs.to(device)
                 sampled_graphs.ndata['label'] = po_labels.to(device)
                 sampled_graphs.ndata['delay'] = pi_delays.to(device)
 
                 graphs_info = {}
-                topo_levels = gen_topo(sampled_graphs)
+                #graphs_info = train_data[1]
 
                 graphs_info['is_heter'] = is_heter(sampled_graphs)
                 graphs_info['topo'] = [l.to(device) for l in topo_levels]
@@ -318,25 +370,47 @@ def train(model):
                 graphs_info['POs'] = (sampled_graphs.ndata['is_po']==1).squeeze(-1).to(device)
                 POs_topolevel = sampled_graphs.ndata['PO_feat'][sampled_graphs.ndata['is_po'] == 1].to(device)
                 graphs_info['POs_feat'] = POs_topolevel
-                labels_hat = model(sampled_graphs, graphs_info)
+                labels_hat,path_loss = model(sampled_graphs, graphs_info)
                 labels = sampled_graphs.ndata['label'][graphs_info['POs']].to(device)
                 if len(labels)<2:
                     continue
                 total_num += len(labels)
                 train_loss = Loss(labels_hat, labels)
 
+                # print(labels)
+                # print(labels_hat)
+                #exit()
+                if options.flag_path_supervise:
+                    #print(train_loss,-path_loss)
+                    #print(model.state_dict()['mlp_neigh_module.layers.0.weight'])
+                    train_loss += -path_loss
+
+
                 train_r2 = R2_score(labels_hat, labels).to(device)
                 train_mape = th.mean(th.abs(labels_hat[labels!=0]-labels[labels!=0])/labels[labels!=0])
                 ratio = labels_hat[labels!=0] / labels[labels!=0]
                 min_ratio = th.min(ratio)
                 max_ratio = th.max(ratio)
-                if i==num_cases-1: print('{}/{} train_loss:{:.3f}\ttrain_r2:{:.3f}\ttrain_mape:{:.3f}, ratio:{:.2f}-{:.2f}'.format((batch+1)*options.batch_size,num_traindata,train_loss.item(),train_r2.item(),train_mape.item(),min_ratio,max_ratio))
+                if i==num_cases-1:
+                    print('{}/{} train_loss:{:.3f}, {:.3f}\ttrain_r2:{:.3f}\ttrain_mape:{:.3f}, ratio:{:.2f}-{:.2f}'.format((batch+1)*options.batch_size,num_traindata,train_loss.item(),-path_loss.item(),train_r2.item(),train_mape.item(),min_ratio,max_ratio))
+
+                    model.flag_train = False
+                    val_loss, val_r2, val_mape, val_min_ratio, val_max_ratio = test(model, val_data, val_idx_loader)
+                    test_loss, test_r2, test_mape, test_min_ratio, test_max_ratio = test(model, test_data,
+                                                                                         test_idx_loader)
+                    model.flag_train = True
+                    print('\tval:  loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(
+                        val_loss, val_r2, val_mape, val_min_ratio, val_max_ratio))
+                    print('\ttest: loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(
+                        test_loss, test_r2, test_mape, test_min_ratio, test_max_ratio))
                 optim.zero_grad()
                 train_loss.backward()
                 optim.step()
 
+        model.flag_train = False
         val_loss, val_r2,val_mape,val_min_ratio,val_max_ratio = test(model, val_data,val_idx_loader)
         test_loss, test_r2,test_mape,test_min_ratio,test_max_ratio = test(model,test_data,test_idx_loader)
+        model.flag_train = True
         print('End of epoch {}'.format(epoch))
         print('\tval:  loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(val_loss,val_r2,val_mape,val_min_ratio,val_max_ratio))
         print('\ttest: loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(test_loss,test_r2,test_mape,test_min_ratio,test_max_ratio))
@@ -360,15 +434,22 @@ if __name__ == "__main__":
         options.data_savepath = input_options.data_savepath
         options.target_residual = input_options.target_residual
         #options.flag_filter = input_options.flag_filter
+        #options.flag_reverse = input_options.flag_reverse
+        #options.pi_choice = input_options.pi_choice
+        options.batch_size = input_options.batch_size
+        options.gpu = input_options.gpu
+        options.flag_path_supervise = input_options.flag_path_supervise
         options.flag_reverse = input_options.flag_reverse
         options.pi_choice = input_options.pi_choice
-        options.batch_size = input_options.batch_size
+
 
         # print(options)
         # exit()
         model = init_model(options)
+        model.flag_train = False
+
         # if options.flag_reverse:
-        #     if options.pi_choice == 0: model.mlp_global_pi = MLP(1, int(options.hidden_dim / 2), options.hidden_dim)
+        #     if options.pi_choice == 0: model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
         #     model.mlp_out_new = MLP(options.out_dim, options.hidden_dim, 1)
         model = model.to(device)
         model.load_state_dict(th.load(model_save_path))
@@ -388,7 +469,7 @@ if __name__ == "__main__":
             pass
         with tee.StdoutTee(stdout_f), tee.StderrTee(stderr_f):
             model = init_model(options)
-            if options.flag_reverse:
+            if options.pretrain_dir is not None:
                 model.load_state_dict(th.load(options.pretrain_dir))
             if options.flag_reverse:
                 if options.pi_choice == 0: model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
@@ -401,5 +482,10 @@ if __name__ == "__main__":
     else:
         print('No checkpoint is specified. abandoning all model checkpoints and logs')
         model = init_model(options)
+        if options.flag_reverse:
+            model.load_state_dict(th.load(options.pretrain_dir))
+        if options.flag_reverse:
+            if options.pi_choice == 0: model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
+            model.mlp_out_new = MLP(options.out_dim, options.hidden_dim, 1)
         model = model.to(device)
         train(model)
