@@ -3,6 +3,24 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+
+#idea
+.idea/
+.DS_Store
+
+#backup
+src_bk/
+*bk*
+
+# test
+tt.py
+merge_data.py
+delay_prop.py
+delay_statistic.py
+collect_data.py
+verilog_parser.py
+train_kfold.py
+
 # data
 rawdata/
 
