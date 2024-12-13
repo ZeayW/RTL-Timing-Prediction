@@ -34,6 +34,8 @@ data_file = os.path.join(data_path, 'data.pkl')
 split_file = os.path.join(data_path, 'split.pkl')
 with open(data_file, 'rb') as f:
     data_all = pickle.load(f)
+    design_names = [d[1]['design_name'].split('_')[-1] for d in data_all]
+
 with open(split_file, 'rb') as f:
     split_list = pickle.load(f)
 
@@ -41,7 +43,10 @@ def load_data(usage):
     assert usage in ['train','val','test']
 
     target_list = split_list[usage]
-    data = [d for d in data_all if d[1]['design_name'] in target_list]
+    target_list = [n.split('_')[-1] for n in target_list]
+    #print(target_list[:10])
+
+    data = [d for i,d in enumerate(data_all) if design_names[i] in target_list]
     print("------------Loading {}_data #{}-------------".format(usage,len(data)))
 
     loaded_data = []
@@ -140,9 +145,9 @@ def test(model,test_data,test_idx_loader):
                 for data in sampled_data:
 
                     if options.target_residual:
-                        PIs_delay,_, POs_label, pi2po_edges,edge_weights = data['delay-label_pairs'][i]
+                        PIs_delay,_, POs_label, pi2po_edges = data['delay-label_pairs'][i][:4]
                     else:
-                        PIs_delay, POs_label, _,pi2po_edges,edge_weights  = data['delay-label_pairs'][i]
+                        PIs_delay, POs_label, _,pi2po_edges  = data['delay-label_pairs'][i][:4]
 
                     graph = data['graph']
                     cur_po_labels =  th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
@@ -322,9 +327,11 @@ def train(model):
                 new_edges,new_edges_weight = ([],[]),[]
                 for data in sampled_data:
                     if options.target_residual:
-                        PIs_delay, _, POs_label,pi2po_edges,edges_weight = data['delay-label_pairs'][i]
+                        PIs_delay, _, POs_label,pi2po_edges = data['delay-label_pairs'][i][:4]
+
                     else:
-                        PIs_delay, POs_label, _,pi2po_edges,edges_weight = data['delay-label_pairs'][i]
+                        PIs_delay, POs_label, _,pi2po_edges = data['delay-label_pairs'][i][:4]
+
 
                     graph = data['graph']
 
@@ -333,11 +340,11 @@ def train(model):
                     # po2pis = find_faninPIs(graph.to(device),data)
 
                     #print({get_nodename(data['nodes_name'],po): [data['nodes_name'][pi][0] for pi in pis] for po,(distance,pis) in po2pis.items()})
-
-                    new_edges[0].extend([nid+start_idx for nid in pi2po_edges[0]])
-                    new_edges[1].extend([nid + start_idx for nid in pi2po_edges[1]])
-                    new_edges_weight.extend(edges_weight)
-                    start_idx += graph.number_of_nodes()
+                    if options.flag_path_supervise:
+                        new_edges[0].extend([nid+start_idx for nid in pi2po_edges[0]])
+                        new_edges[1].extend([nid + start_idx for nid in pi2po_edges[1]])
+                        #new_edges_weight.extend(edges_weight)
+                        start_idx += graph.number_of_nodes()
 
                     cur_po_labels = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
                     cur_po_labels[graph.ndata['is_po'] == 1] = th.tensor(POs_label, dtype=th.float).unsqueeze(-1)
@@ -353,8 +360,8 @@ def train(model):
 
 
                 if options.flag_path_supervise:
-                    new_edges_feat = {'prob': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1)}
-                    sampled_graphs = add_newEtype(sampled_graphs, 'pi2po', new_edges, new_edges_feat)
+                    #new_edges_feat = {'prob': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1)}
+                    sampled_graphs = add_newEtype(sampled_graphs, 'pi2po', new_edges, {})
 
 
                 sampled_graphs = sampled_graphs.to(device)
@@ -392,17 +399,17 @@ def train(model):
                 min_ratio = th.min(ratio)
                 max_ratio = th.max(ratio)
                 if i==num_cases-1:
-                    print('{}/{} train_loss:{:.3f}, {:.3f}\ttrain_r2:{:.3f}\ttrain_mape:{:.3f}, ratio:{:.2f}-{:.2f}'.format((batch+1)*options.batch_size,num_traindata,train_loss.item(),-path_loss.item(),train_r2.item(),train_mape.item(),min_ratio,max_ratio))
+                    print('{}/{} train_loss:{:.3f}, {}\ttrain_r2:{:.3f}\ttrain_mape:{:.3f}, ratio:{:.2f}-{:.2f}'.format((batch+1)*options.batch_size,num_traindata,train_loss.item(),path_loss,train_r2.item(),train_mape.item(),min_ratio,max_ratio))
 
-                    model.flag_train = False
-                    val_loss, val_r2, val_mape, val_min_ratio, val_max_ratio = test(model, val_data, val_idx_loader)
-                    test_loss, test_r2, test_mape, test_min_ratio, test_max_ratio = test(model, test_data,
-                                                                                         test_idx_loader)
-                    model.flag_train = True
-                    print('\tval:  loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(
-                        val_loss, val_r2, val_mape, val_min_ratio, val_max_ratio))
-                    print('\ttest: loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(
-                        test_loss, test_r2, test_mape, test_min_ratio, test_max_ratio))
+                    # model.flag_train = False
+                    # val_loss, val_r2, val_mape, val_min_ratio, val_max_ratio = test(model, val_data, val_idx_loader)
+                    # test_loss, test_r2, test_mape, test_min_ratio, test_max_ratio = test(model, test_data,
+                    #                                                                      test_idx_loader)
+                    # model.flag_train = True
+                    # print('\tval:  loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(
+                    #     val_loss, val_r2, val_mape, val_min_ratio, val_max_ratio))
+                    # print('\ttest: loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(
+                    #     test_loss, test_r2, test_mape, test_min_ratio, test_max_ratio))
                 optim.zero_grad()
                 train_loss.backward()
                 optim.step()

@@ -128,7 +128,10 @@ class TimeConv(nn.Module):
         h = self.mlp_neigh_module(h)
         h[mask] = self.activation(h[mask])
 
-        return {'h':h,'attn_sum':nodes.data['attn_sum']}
+        if self.flag_reverse:
+            return {'h':h,'attn_sum':nodes.data['attn_sum']}
+        else:
+            return {'h': h}
 
     def nodes_func_gate(self,nodes):
 
@@ -140,8 +143,10 @@ class TimeConv(nn.Module):
         h = th.cat((nodes.data['neigh'],nodes.data[self.feat_name1]),dim=1)
         h = self.mlp_neigh_gate(h)
         h[mask] = self.activation(h[mask])
-
-        return {'h':h,'exp_src_sum':nodes.data['exp_src_sum']}
+        if self.flag_reverse:
+            return {'h': h, 'exp_src_sum': nodes.data['exp_src_sum']}
+        else:
+            return {'h':h}
 
     def edge_msg_module(self,edges):
         z = th.cat((self.mlp_type(edges.dst[self.feat_name2]), self.mlp_pos(edges.data['bit_position'].unsqueeze(1)),
@@ -192,8 +197,11 @@ class TimeConv(nn.Module):
         alpha = th.softmax(nodes.mailbox['attn_e'], dim=1)
         h = th.sum(alpha*nodes.mailbox['m'],dim=1)
 
-
-        return {'neigh':h,'attn_sum':attn_sum}
+        if self.flag_reverse:
+            attn_sum = th.sum(th.exp(nodes.mailbox['attn_e']), dim=1).unsqueeze(1)
+            return {'neigh':h,'attn_sum':attn_sum}
+        else:
+            return {'neigh': h}
 
 
     def edge_msg_gate_weight(self,edges):
@@ -230,8 +238,10 @@ class TimeConv(nn.Module):
         # msg = msg - 1000
         weight = th.softmax(msg, dim=1)
         #criticality = th.mean(weight,dim=2)
-
-        return {'neigh': (msg * weight).sum(1),'exp_src_sum':th.sum(th.exp(msg-th.max(msg,dim=1).values.unsqueeze(1)),dim=1)}
+        if self.flag_reverse:
+            return {'neigh': (msg * weight).sum(1),'exp_src_sum':th.sum(th.exp(msg-th.max(msg,dim=1).values.unsqueeze(1)),dim=1)}
+        else:
+            return {'neigh': (msg * weight).sum(1)}
 
     def message_func_reverse(self,edges):
 
@@ -272,7 +282,12 @@ class TimeConv(nn.Module):
         return {'hp':th.sum(nodes.mailbox['mp'],dim=1),'hd':th.max(nodes.mailbox['dst'],dim=1).values}
 
     def nodes_func_pi(self,nodes):
-        h = self.mlp_pi(nodes.data['delay'])
+        h = nodes.data['delay']
+        #h = th.cat((nodes.data['delay'],nodes.data['value']),dim=1)
+        h = self.mlp_pi(h)
+        mask = nodes.data['is_po'].squeeze() != 1
+        #h[mask] = self.activation(h[mask])
+
         return {'h':h}
 
     def prop_backward(self,graph,POs):
