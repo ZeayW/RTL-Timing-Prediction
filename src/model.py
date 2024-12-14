@@ -57,7 +57,7 @@ class TimeConv(nn.Module):
         self.hidden_dim = hidden_dim
         self.agg_choice = agg_choice
         self.attn_choice = attn_choice
-        self.mlp_pi = MLP(1, int(hidden_dim / 2), hidden_dim)
+        self.mlp_pi = MLP(4, int(hidden_dim / 2), hidden_dim)
         self.mlp_agg = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
 
         out_dim = hidden_dim
@@ -282,8 +282,8 @@ class TimeConv(nn.Module):
         return {'hp':th.sum(nodes.mailbox['mp'],dim=1),'hd':th.max(nodes.mailbox['dst'],dim=1).values}
 
     def nodes_func_pi(self,nodes):
-        h = nodes.data['delay']
-        #h = th.cat((nodes.data['delay'],nodes.data['value']),dim=1)
+        #h = nodes.data['delay']
+        h = th.cat((nodes.data['delay'],nodes.data['value']),dim=1)
         h = self.mlp_pi(h)
         mask = nodes.data['is_po'].squeeze() != 1
         #h[mask] = self.activation(h[mask])

@@ -26,6 +26,8 @@ R2_score = R2Score().to(device)
 Loss = nn.MSELoss()
 with open(os.path.join(options.data_savepath, 'ntype2id.pkl'), 'rb') as f:
     ntype2id,ntype2id_gate,ntype2id_module = pickle.load(f)
+num_gate_types = len(ntype2id_gate)
+num_module_types = len(ntype2id_module)
 # print(ntype2id,ntype2id_gate,ntype2id_module)
 # exit()
 
@@ -60,6 +62,10 @@ def load_data(usage):
             graph = heter2homo(graph)
 
         graph.ndata['feat'] = graph.ndata['ntype']
+        # graph.ndata['feat'] = graph.ndata['ntype'][:,3:]
+        # num_gate_types = num_gate_types - 3
+        # print(th.sum(graph.ndata['value'][:,0])+th.sum(graph.ndata['value'][:,1])+th.sum(graph.ndata['is_pi'])+th.sum(graph.ndata['feat']),th.sum(graph.ndata['ntype']))
+
         graph.ndata['feat_module'] = graph.ndata['ntype_module']
         graph.ndata['feat_gate'] = graph.ndata['ntype_gate']
         graph_info['POs_feat'] = graph_info['POs_level_max'].unsqueeze(-1)
@@ -87,8 +93,8 @@ def load_data(usage):
 
 def init_model(options):
     model = TimeConv(
-            infeat_dim1=len(ntype2id_gate),
-            infeat_dim2=len(ntype2id_module),
+            infeat_dim1=num_gate_types,
+            infeat_dim2=num_module_types,
             hidden_dim=options.hidden_dim,
             flag_path_supervise=options.flag_path_supervise,
             flag_filter = options.flag_filter,
