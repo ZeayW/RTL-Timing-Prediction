@@ -27,6 +27,7 @@ Loss = nn.MSELoss()
 with open(os.path.join(options.data_savepath, 'ntype2id.pkl'), 'rb') as f:
     ntype2id,ntype2id_gate,ntype2id_module = pickle.load(f)
 num_gate_types = len(ntype2id_gate)
+num_gate_types -= 3
 num_module_types = len(ntype2id_module)
 # print(ntype2id,ntype2id_gate,ntype2id_module)
 # exit()
@@ -62,8 +63,8 @@ def load_data(usage):
             graph = heter2homo(graph)
 
         graph.ndata['feat'] = graph.ndata['ntype']
-        # graph.ndata['feat'] = graph.ndata['ntype'][:,3:]
-        # num_gate_types = num_gate_types - 3
+        graph.ndata['feat'] = graph.ndata['ntype'][:,3:]
+
         # print(th.sum(graph.ndata['value'][:,0])+th.sum(graph.ndata['value'][:,1])+th.sum(graph.ndata['is_pi'])+th.sum(graph.ndata['feat']),th.sum(graph.ndata['ntype']))
 
         graph.ndata['feat_module'] = graph.ndata['ntype_module']
@@ -310,14 +311,14 @@ def train(model):
             for idx in idxs:
                 data = train_data[idx]
                 num_cases = min(num_cases,len(data['delay-label_pairs']))
-                #shuffle(train_data[idx]['delay-label_pairs'])
+                shuffle(train_data[idx]['delay-label_pairs'])
                 sampled_data.append(train_data[idx])
                 graphs.append(data['graph'])
             sampled_graphs = dgl.batch(graphs)
 
             #
-            # sampled_data = [train_data[1]]
-            # sampled_graphs = train_data[1]['graph']
+            # sampled_data = [train_data[0]]
+            # sampled_graphs = train_data[0]['graph']
             # print(train_data[1]['design_name'])
 
             topo_levels = gen_topo(sampled_graphs)

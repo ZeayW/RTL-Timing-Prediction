@@ -88,9 +88,10 @@ class TimeConv(nn.Module):
             self.mlp_global = MLP(1, int(hidden_dim / 2), hidden_dim)
             out_dim = hidden_dim * 2
         if flag_attn:
-            atnn_dim_m = hidden_dim + 64
-            self.mlp_type = MLP(self.infeat_dim2, 32, 32)
-            self.mlp_pos = MLP(1, 32, 32)
+            hidden_dim_attn = int(hidden_dim/8)
+            atnn_dim_m = hidden_dim + hidden_dim_attn *2
+            self.mlp_type = MLP(self.infeat_dim2, hidden_dim_attn, hidden_dim_attn)
+            self.mlp_pos = MLP(1, hidden_dim_attn, hidden_dim_attn)
             self.attention_vector_g = nn.Parameter(th.randn(hidden_dim, 1), requires_grad=True)
             self.attention_vector_m = nn.Parameter(th.randn(atnn_dim_m,1),requires_grad=True)
         # if flag_reverse:
