@@ -122,12 +122,11 @@ def init(seed):
 
 def test(model,test_data,test_idx_loader):
 
+    model.flag_train = False
     with (th.no_grad()):
         total_num, total_loss, total_r2 = 0, 0.0, 0
         labels,labels_hat = None,None
         POs_topo = None
-
-
 
         for batch, idxs in enumerate(test_idx_loader):
             sampled_data = []
@@ -141,7 +140,7 @@ def test(model,test_data,test_idx_loader):
                 graphs.append(data['graph'])
 
             sampled_graphs = dgl.batch(graphs)
-            if options.flag_reverse:
+            if not options.flag_path_supervise and options.flag_reverse:
                 sampled_graphs = add_reverse_edges(sampled_graphs)
             # if options.target_base: num_cases = 1
             #num_cases = 1
@@ -231,6 +230,7 @@ def test(model,test_data,test_idx_loader):
         # plt.savefig('scatter.png')
 
         return test_loss, test_r2,test_mape,min_ratio,max_ratio
+    model.flag_train = True
 
 def train(model):
     print(options)
@@ -317,8 +317,8 @@ def train(model):
             sampled_graphs = dgl.batch(graphs)
 
             #
-            # sampled_data = [train_data[0]]
-            # sampled_graphs = train_data[0]['graph']
+            # sampled_data = [train_data[1]]
+            # sampled_graphs = train_data[1]['graph']
             # print(train_data[1]['design_name'])
 
             topo_levels = gen_topo(sampled_graphs)
@@ -326,6 +326,7 @@ def train(model):
                 sampled_graphs = add_reverse_edges(sampled_graphs)
 
             # if options.target_base: num_cases = 1
+            #num_cases = 2
 
             for i in range(num_cases):
                 #print('\t idx',i)
@@ -398,6 +399,7 @@ def train(model):
                     #print(train_loss,-path_loss)
                     #print(model.state_dict()['mlp_neigh_module.layers.0.weight'])
                     train_loss += -path_loss
+                    #train_loss = -path_loss
 
 
                 train_r2 = R2_score(labels_hat, labels).to(device)
@@ -408,23 +410,12 @@ def train(model):
                 if i==num_cases-1:
                     print('{}/{} train_loss:{:.3f}, {}\ttrain_r2:{:.3f}\ttrain_mape:{:.3f}, ratio:{:.2f}-{:.2f}'.format((batch+1)*options.batch_size,num_traindata,train_loss.item(),path_loss,train_r2.item(),train_mape.item(),min_ratio,max_ratio))
 
-                    # model.flag_train = False
-                    # val_loss, val_r2, val_mape, val_min_ratio, val_max_ratio = test(model, val_data, val_idx_loader)
-                    # test_loss, test_r2, test_mape, test_min_ratio, test_max_ratio = test(model, test_data,
-                    #                                                                      test_idx_loader)
-                    # model.flag_train = True
-                    # print('\tval:  loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(
-                    #     val_loss, val_r2, val_mape, val_min_ratio, val_max_ratio))
-                    # print('\ttest: loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(
-                    #     test_loss, test_r2, test_mape, test_min_ratio, test_max_ratio))
                 optim.zero_grad()
                 train_loss.backward()
                 optim.step()
 
-        model.flag_train = False
         val_loss, val_r2,val_mape,val_min_ratio,val_max_ratio = test(model, val_data,val_idx_loader)
         test_loss, test_r2,test_mape,test_min_ratio,test_max_ratio = test(model,test_data,test_idx_loader)
-        model.flag_train = True
         print('End of epoch {}'.format(epoch))
         print('\tval:  loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(val_loss,val_r2,val_mape,val_min_ratio,val_max_ratio))
         print('\ttest: loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(test_loss,test_r2,test_mape,test_min_ratio,test_max_ratio))
@@ -466,7 +457,7 @@ if __name__ == "__main__":
         #     if options.pi_choice == 0: model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
         #     model.mlp_out_new = MLP(options.out_dim, options.hidden_dim, 1)
         model = model.to(device)
-        model.load_state_dict(th.load(model_save_path))
+        model.load_state_dict(th.load(model_save_path,map_location='cuda:{}'.format(options.gpu)))
         test_data,test_idx_loader = load_data('test')
         test_loss, test_r2,test_mape,test_min_ratio,test_max_ratio = test(model, test_data,test_idx_loader)
         print(
@@ -484,7 +475,7 @@ if __name__ == "__main__":
         with tee.StdoutTee(stdout_f), tee.StderrTee(stderr_f):
             model = init_model(options)
             if options.pretrain_dir is not None:
-                model.load_state_dict(th.load(options.pretrain_dir))
+                model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
             if options.flag_reverse:
                 if options.pi_choice == 0: model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
                 model.mlp_out_new =  MLP(options.out_dim,options.hidden_dim,1)
@@ -496,8 +487,8 @@ if __name__ == "__main__":
     else:
         print('No checkpoint is specified. abandoning all model checkpoints and logs')
         model = init_model(options)
-        if options.flag_reverse:
-            model.load_state_dict(th.load(options.pretrain_dir))
+        if options.pretrain_dir is not None:
+            model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
         if options.flag_reverse:
             if options.pi_choice == 0: model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
             model.mlp_out_new = MLP(options.out_dim, options.hidden_dim, 1)

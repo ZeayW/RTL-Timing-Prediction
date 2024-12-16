@@ -95,8 +95,8 @@ class Parser:
         self.pi_delay = {}
         self.po_labels = {}
         self.nicknames = {}
-        #self.buf_types = ['buf','not']
-        self.buf_types = ['buf']
+        self.buf_types = ['buf','not']
+        #self.buf_types = ['buf']
 
     def is_constant(self,node):
         if "1'b0" in node or self.nodes.get(node,{}).get('ntype')=="1'b0":
@@ -118,6 +118,7 @@ class Parser:
         return io_nodes
 
     #.i0({3'b000,do_2_b5_n,do_2_b5_n1,do_2_b5_n2,do_2_b5_n3,do_2_b5_n4}),
+    # parse the given wire, and return the list of single-bit pins
     def parse_wire(self,wire):
 
         if wire.strip().startswith('{'):
@@ -183,8 +184,7 @@ class Parser:
         #     print('---fix')
             # return None, {}
 
-        buf_o2i = {}
-        buf_i2o = {}
+        buf_o2i, buf_i2o = {}, {}
         fo2fi_bit_position = {}
 
         for sentence in content.split(';\n'):
@@ -219,7 +219,6 @@ class Parser:
             else:
                 fo2fi = {}  # {fanout_name:fanin_list}
                 sentence = sentence.replace('\n','').strip()
-                # print(sentence)
                 # get the gate type
                 gate = sentence[:sentence.find('(')]
                 if len(gate.strip().split(' '))==1:
@@ -318,24 +317,22 @@ class Parser:
                     self.nodes[fanout_node]['ntype'] = gate_type
 
 
-
         # deal with the constant inputs (1'b0/1) iteratively
         flag_stop = False
         while not flag_stop:
             num_removed_constant = 0
             new_fo2fi = {}
             for fanout, (fanout_type,cell_name,fanins) in self.fo2fi.items():
-
+                # simplify the logic gates with constant input (1'b0/1'b1)
                 if fanout_type == 'gate':
                     gate_type = self.nodes[fanout]['ntype']
+                    # check if the inputs contain any constant value
                     flag_input_constant = [self.is_constant(n) for n in fanins]
-
                     if 0 not in flag_input_constant and 1 not in flag_input_constant:
                         new_fo2fi[fanout] = (fanout_type,cell_name, fanins)
                         continue
                     num_removed_constant += 1
-                    # print(fanout,fanins)
-                    # print(fanout,gate_type)
+                    # do the simplification based on pre-defined calculation
                     gate_func = gate_func_map[gate_type]
                     flag_output = gate_func(flag_input_constant)
                     if flag_output == 0:
@@ -346,28 +343,25 @@ class Parser:
                         gate_type = "buf"
                     elif flag_output == 3:
                         gate_type = "not"
+                    # update the gate type
                     self.nodes[fanout]['ntype'] = gate_type
 
-                    # if fanout=='do_17_b154[0]':
-                    #     print(fanout,fanins,flag_input_constant,gate_type)
                     if gate_type in ["1'b0","1'b1"]:
                         continue
 
+                    # record the new edges
                     fanins = [n for i, n in enumerate(fanins) if flag_input_constant[i] == -2]
-
                     assert gate_type not in ['buf','not'] or len(fanins)!=0, "fanout {} with no fanin".format(fanout)
-
-
                     if len(fanins) != 0:
                         new_fo2fi[fanout] = (fanout_type, cell_name,fanins)
-
                 else:
                     new_fo2fi[fanout] = (fanout_type,cell_name,fanins)
 
             self.fo2fi = new_fo2fi
             flag_stop = num_removed_constant==0
 
-        # deal with the buffers
+        # deal with the buffers/NOT gates
+        #   record the input-output and output-input pair of buffer/NOT
         for fanout, (fanout_type,_, fanins) in self.fo2fi.items():
             gate_type = self.nodes[fanout]['ntype']
             if gate_type in self.buf_types:
@@ -375,6 +369,7 @@ class Parser:
                 fanin = fanins[0]
                 buf_o2i[fanout] = fanin
                 buf_i2o[fanin] = fanout
+
 
 
         # get the edges and check whether each node is connected or not
@@ -389,14 +384,17 @@ class Parser:
             if self.nodes[fanout]['ntype'] not in self.buf_types:
                 for fanin in fanins:
                     src = fanin
+                    num_inv = 0
+                    # for each fanin, recusively backtrace to predecessor until meet non-buffer node
                     while buf_o2i.get(src, None) is not None:
                         src = buf_o2i[src]
-                    # if src=='do_3_b10[1]':
-                    #     print(src,dst)
+                        if self.nodes[src]['ntype'] == 'not':
+                            num_inv += 1
+                    is_inv = num_inv%2
                     bit_position = fo2fi_bit_position.get((cell_name,fanin),None)
-                    src_list.append((src,bit_position))
+                    src_list.append((src,bit_position,is_inv))
                     self.edges.append(
-                        (src, dst, {'bit_position': bit_position})
+                        (src, dst, {'bit_position': bit_position,'is_inv':is_inv})
                     )
                     is_linked[src] = True
                     is_linked[dst] = True
@@ -415,32 +413,30 @@ class Parser:
                     visited_po[fanout] = True
                 continue
 
-            #print('a')
             # when a buf node is also a PO
             # we will duplicate the buf input node to reserce the PO
+            num_inv = 0
+            # recusively visit successors of fanout node until meet non-buffer node
             while buf_i2o.get(dst,None) is not None:
-                #print('\t',dst,buf_i2o[dst])
                 dst = buf_i2o[dst]
-
+                if self.nodes[dst]['ntype']:
+                    num_inv += 1
+            # check whether the last visited node is PO
             if self.nodes[dst]['is_po']:
                 assert not visited_po.get(dst, False)
-                for (src, bit_pos) in src_list:
+                for (src, bit_pos,is_inv) in src_list:
+                    is_inv = (is_inv+num_inv)%2
                     self.edges.append(
-                        (src, dst, {'bit_position': bit_pos})
+                        (src, dst, {'bit_position': bit_pos,'is_inv':is_inv})
                     )
                     is_linked[src] = True
                     is_linked[dst] = True
-                # if dst=='do_17[59]':
-                #     print('\t src',src_list,fanout)
-                #     print('\t fo',fanout,self.nodes[fanout])
-
 
                 self.nodes[dst]['ntype'] = self.nodes[fanout]['ntype']
                 self.nodes[dst]['is_module'] = self.nodes[fanout]['is_module']
 
 
         self.nodes = {n: self.nodes[n] for n in self.nodes.keys() if self.nodes[n]['ntype'] not in ['wire', None]}
-
 
         # construct the graph
         src_nodes, dst_nodes = [[],[]],[[],[]]
@@ -462,7 +458,7 @@ class Parser:
             nodes_type.append(node_info['ntype'])
             if node_info['ntype'] in self.buf_types or node_info['ntype']=='output':
                 print("***",node,node_info)
-                #exit()
+                exit()
 
             is_module.append(node_info['is_module'])
 
@@ -492,6 +488,7 @@ class Parser:
 
         # get the src_node list and dst_node lsit
         bit_position = []
+        is_inv = [[],[]]
         for eid, (src, dst, edict) in enumerate(self.edges):
             #print(src,dst)
             edge_set_idx = is_module[node2nid[dst]]
@@ -499,7 +496,7 @@ class Parser:
             if node2nid.get(src,None) is not None:
                 src_nodes[edge_set_idx].append(node2nid[src])
                 dst_nodes[edge_set_idx].append(node2nid[dst])
-
+                is_inv[edge_set_idx].append(edict['is_inv'])
                 if edge_set_idx==1:
                     bit_position.append(edict['bit_position'])
 
@@ -515,16 +512,17 @@ class Parser:
         graph.ndata['is_module'] = th.tensor(is_module)
         graph.ndata['value'] = nodes_valueOnehot
         graph.edges['intra_module'].data['bit_position'] = th.tensor(bit_position, dtype=th.float)
-
+        graph.edges['intra_module'].data['is_inv'] = th.tensor(is_inv[1], dtype=th.float)
+        graph.edges['intra_gate'].data['is_inv'] = th.tensor(is_inv[0], dtype=th.float)
 
 
         print('\t pre-filter: #node:{}, #edges:{}, {}'.format(graph.number_of_nodes(),
                                                                graph.number_of_edges('intra_gate'),
                                                                graph.number_of_edges('intra_module')))
+        #filter out the irrelevant nodes that are not connected to any of the labeled PO
         remain_nodes,remove_nodes = graph_filter(graph)
         remain_nodes = remain_nodes.numpy().tolist()
         graph.remove_nodes(remove_nodes)
-
         is_module = filter_list(is_module,remain_nodes)
         nodes_type = filter_list(nodes_type,remain_nodes)
         nodes_name = filter_list(nodes_name, remain_nodes)
@@ -537,6 +535,7 @@ class Parser:
 
         nname2nid = {nm:nid for nid,nm in enumerate(nodes_name)}
 
+        # get the topological level of the PO nodes
         topo = gen_topo(graph)
         PO2level = {}
         for l, nodes in enumerate(gen_topo(graph)):
@@ -545,8 +544,8 @@ class Parser:
                     PO2level[n] = l
         POs_level = [PO2level[n] for n in POs_nid]
 
+        # filter out the POs that have abnormal label (large topo level but zero delay)
         remain_pos_idx = []
-
         for i,level in enumerate(POs_level):
             nid = POs_nid[i]
             PO_name = POs_name[i]
@@ -556,13 +555,11 @@ class Parser:
                 graph.ndata['is_po'][nid] = 0
             else:
                 remain_pos_idx.append(i)
-
         POs_level = filter_list(POs_level,remain_pos_idx)
         POs_name = filter_list(POs_name, remain_pos_idx)
         POs_nid = filter_list(POs_nid, remain_pos_idx)
 
-
-
+        # save the necessary graph information
         graph_info['topo'] = topo
         graph_info['ntype'] = nodes_type
         graph_info['nodes_name'] = nodes_name
@@ -574,32 +571,10 @@ class Parser:
         graph_info['PIs_name'] = PIs_name
         graph_info['design_name'] = self.design_name
         graph_info['nicknames'] = self.nicknames
-        #print(graph_info['POs_name'],len(graph_info['POs_name']),len(graph.ndata['is_po'][graph.ndata['is_po']==1]))
-        # POs_level_min = []     # record the shortest path length from an PI to any PI
-        # for po in POs:
-        #     l = 0
-        #     # print(po)
-        #     predecessors = graph.predecessors(po).numpy().tolist()
-        #     # predecessors_name = [nid2node[n] for n in predecessors]
-        #     while len(predecessors) !=0:
-        #         l +=1
-        #         new_predecessors = []
-        #         for p in predecessors:
-        #             pre_preds = graph.predecessors(p).numpy().tolist()
-        #             if len(pre_preds)==0:
-        #                 break
-        #             new_predecessors.extend(pre_preds)
-        #         # predecessors_name = [nid2node[n] for n in new_predecessors]
-        #         predecessors = new_predecessors
-        #         # print('\t', predecessors_name)
-        #     POs_level_min.append(l)
-        # graph_info['POs_level_min'] = th.tensor(POs_level_min,dtype=th.float)
 
         print('\t post-filter: #node:{}, #edges:{}, {}'.format(graph.number_of_nodes(),graph.number_of_edges('intra_gate'),graph.number_of_edges('intra_module')))
         print('\t #PO:{}'.format(len(POs_name)))
         # print('\t',graph_info)
-        #print('\t POs: max levels={}'.format(POs_level))
-        #print('\t      min_levels={}'.format(POs_level_min))
 
         return graph, graph_info
 

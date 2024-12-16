@@ -145,7 +145,7 @@ class TimeConv(nn.Module):
         h = self.mlp_neigh_gate(h)
         h[mask] = self.activation(h[mask])
         if self.flag_reverse:
-            return {'h': h, 'exp_src_sum': nodes.data['exp_src_sum']}
+            return {'h': h, 'exp_src_sum': nodes.data['exp_src_sum'],'exp_src_max':nodes.data['exp_src_max']}
         else:
             return {'h':h}
 
@@ -210,9 +210,11 @@ class TimeConv(nn.Module):
         src_msg = edges.src['h'] - th.max(edges.src['h'])
         src_msg = edges.src['h'] - th.max(edges.src['h'],dim=1).values.unsqueeze(1)
         #src_msg = edges.src['h'] - 1000
-        #src_msg = edges.src['h']
+        src_msg = edges.src['h'] - edges.dst['exp_src_max']
         weight = th.mean(th.exp(src_msg) / edges.dst['exp_src_sum'],dim=1)
-
+        # print(src_msg.shape)
+        # print(th.max(edges.src['h'],dim=1).values.unsqueeze(1).shape)
+        # exit()
         if th.isnan(weight).any():
             print('gate weight')
             print('isnan:{}, isinf:{}'.format(th.isnan(th.exp(src_msg)).any(),th.isinf(edges.dst['exp_src_sum']).any()))
@@ -239,8 +241,11 @@ class TimeConv(nn.Module):
         # msg = msg - 1000
         weight = th.softmax(msg, dim=1)
         #criticality = th.mean(weight,dim=2)
+        exp_src_max = th.max(msg,dim=1).values
+        exp_src_sum = th.sum(th.exp(msg-exp_src_max.unsqueeze(1)),dim=1)
+
         if self.flag_reverse:
-            return {'neigh': (msg * weight).sum(1),'exp_src_sum':th.sum(th.exp(msg-th.max(msg,dim=1).values.unsqueeze(1)),dim=1)}
+            return {'neigh': (msg * weight).sum(1),'exp_src_sum':exp_src_sum,'exp_src_max':exp_src_max}
         else:
             return {'neigh': (msg * weight).sum(1)}
 
@@ -375,6 +380,8 @@ class TimeConv(nn.Module):
 
             rst = self.mlp_out(h)
 
+            if not self.flag_train and self.flag_path_supervise:
+                return rst,None
 
             if self.flag_reverse:
                 POs = th.tensor(range(graph.number_of_nodes())).to(device)[graph.ndata['is_po'] == 1]
@@ -385,42 +392,38 @@ class TimeConv(nn.Module):
                 nodes_prob = self.prop_backward(graph,POs)
 
                 if self.flag_path_supervise:
-                    if not self.flag_train:
-                        return rst, 0
-                    else:
-                        graph.ndata['hp'] = nodes_prob
-                        graph.ndata['id'] = th.zeros((graph.number_of_nodes(),1), dtype=th.int64).to(device)
-                        graph.ndata['id'][POs] = th.tensor(range(len(POs)),dtype=th.int64).unsqueeze(-1).to(device)
-                        graph.pull(POs,self.message_func_loss,fn.sum('ml', 'loss'),etype='pi2po')
-                        #print([get_nodename(graph_info['nodes_name'],po) for po in POs])
+                    graph.ndata['hp'] = nodes_prob
+                    graph.ndata['id'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.int64).to(device)
+                    graph.ndata['id'][POs] = th.tensor(range(len(POs)), dtype=th.int64).unsqueeze(-1).to(device)
+                    graph.pull(POs, self.message_func_loss, fn.sum('ml', 'loss'), etype='pi2po')
+                    # print([get_nodename(graph_info['nodes_name'],po) for po in POs])
 
-                        #PIs_mask = graph.ndata['is_pi'] == 1
-                        #PIs = th.tensor(range(graph.number_of_nodes())).to(device)[graph.ndata['is_pi'] == 1]
-                        #PIs = PIs.detach().cpu().numpy().tolist()
-                        #print('#PI:',len(PIs))
-                        #PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
-                        #print(PIs_prob.shape)
-                        # for i, po in enumerate(POs):
-                        #     pis_prob = PIs_prob[i]
-                            # print(get_nodename(graph_info['nodes_name'],po))
-                            # print('\t',[(graph_info['nodes_name'][pi][0],prob.item()) for pi,prob in zip(PIs,pis_prob)])
-                            # print('\t',th.max(pis_prob))
-                            # print('\t',th.sum(pis_prob))
-                        #POs_argmaxPI = th.argmax(PIs_prob, dim=1).cpu().numpy().tolist()
+                    # PIs_mask = graph.ndata['is_pi'] == 1
+                    # PIs = th.tensor(range(graph.number_of_nodes())).to(device)[graph.ndata['is_pi'] == 1]
+                    # PIs = PIs.detach().cpu().numpy().tolist()
+                    # print('#PI:',len(PIs))
+                    # PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
+                    # print(PIs_prob.shape)
+                    # for i, po in enumerate(POs):
+                    #     pis_prob = PIs_prob[i]
+                    # print(get_nodename(graph_info['nodes_name'],po))
+                    # print('\t',[(graph_info['nodes_name'][pi][0],prob.item()) for pi,prob in zip(PIs,pis_prob)])
+                    # print('\t',th.max(pis_prob))
+                    # print('\t',th.sum(pis_prob))
+                    # POs_argmaxPI = th.argmax(PIs_prob, dim=1).cpu().numpy().tolist()
 
-                        #print([get_nodename(graph_info['nodes_name'],i) for i in POs_argmaxPI])
+                    # print([get_nodename(graph_info['nodes_name'],i) for i in POs_argmaxPI])
 
+                    # exit()
+                    path_loss = th.mean(graph.ndata['loss'][POs])
 
-                        #exit()
-                        path_loss = th.mean(graph.ndata['loss'][POs])
+                    if th.isnan(path_loss).any():
+                        # print(nodes_prob)
+                        print(len(nodes_prob), len(nodes_prob[th.isnan(nodes_prob)]))
+                        print(len(graph.ndata['loss'][POs][th.isnan(graph.ndata['loss'][POs])]))
+                        # print(graph.ndata['loss'][POs])
 
-                        if th.isnan(path_loss).any():
-                            #print(nodes_prob)
-                            print(len(nodes_prob),len(nodes_prob[th.isnan(nodes_prob)]))
-                            print(len(graph.ndata['loss'][POs][th.isnan(graph.ndata['loss'][POs])]))
-                            #print(graph.ndata['loss'][POs])
-
-                        return rst, path_loss
+                    return rst, path_loss
 
                 # nodes_dst[nodes_dst<-100] = 0
 
