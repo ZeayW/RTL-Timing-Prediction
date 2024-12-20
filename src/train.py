@@ -78,6 +78,10 @@ def load_data(usage):
             print('skip',graph_info['design_name'])
             continue
 
+        if options.flag_reverse:
+            graph = add_reverse_edges(graph)
+
+
         graph_info['graph'] = graph
         #graph_info['PI_mask'] = PI_mask
         #graph_info['delay-label_pairs'] = graph_info['delay-label_pairs'][1:]
@@ -140,13 +144,14 @@ def test(model,test_data,test_idx_loader):
                 graphs.append(data['graph'])
 
             sampled_graphs = dgl.batch(graphs)
-            if not options.flag_path_supervise and options.flag_reverse:
-                sampled_graphs = add_reverse_edges(sampled_graphs)
+            # if not options.flag_path_supervise and options.flag_reverse:
+            #     sampled_graphs = add_reverse_edges(sampled_graphs)
             # if options.target_base: num_cases = 1
-            #num_cases = 1
+            #num_cases = 2
             #print(data['design_name'])
             for i in range(num_cases):
-                #print('\tidx',i)
+                if num_cases==2 and i==0:
+                    continue
                 po_labels, pi_delays = None,None
                 for data in sampled_data:
 
@@ -174,6 +179,7 @@ def test(model,test_data,test_idx_loader):
                 sampled_graphs.ndata['delay'] = pi_delays.to(device)
                 #print(th.sum(sampled_graphs.ndata['delay']))
                 graphs_info = {}
+                graphs_info = test_data[idxs[0]]
                 topo_levels = gen_topo(sampled_graphs)
                 graphs_info['is_heter'] = is_heter(sampled_graphs)
                 graphs_info['topo'] = [l.to(device) for l in topo_levels]
@@ -184,6 +190,11 @@ def test(model,test_data,test_idx_loader):
                 graphs_info['labels'] = cur_labels
 
                 cur_labels_hat, path_loss = model(sampled_graphs, graphs_info)
+                # cur_r2 = R2_score(cur_labels_hat, cur_labels).item()
+                # cur_mape = th.mean(th.abs(cur_labels_hat[cur_labels != 0] - cur_labels[cur_labels != 0]) / cur_labels[cur_labels != 0])
+                # print(graphs_info['design_name'])
+                # print(i,"R2={:.2f} mape={:.3f}".format(cur_r2,cur_mape))
+                # exit()
                 if labels_hat is None:
                     labels_hat = cur_labels_hat
                     labels = cur_labels
@@ -302,12 +313,12 @@ def train(model):
 
         for batch, idxs in enumerate(train_idx_loader):
 
-
             sampled_data = []
 
             idxs = idxs.numpy().tolist()
             num_cases = 100
             graphs = []
+
             for idx in idxs:
                 data = train_data[idx]
                 num_cases = min(num_cases,len(data['delay-label_pairs']))
@@ -322,13 +333,15 @@ def train(model):
             # print(train_data[1]['design_name'])
 
             topo_levels = gen_topo(sampled_graphs)
-            if options.flag_reverse:
-                sampled_graphs = add_reverse_edges(sampled_graphs)
+            # if options.flag_reverse:
+            #     sampled_graphs = add_reverse_edges(sampled_graphs)
+            #
+            # # if options.target_base: num_cases = 1
 
-            # if options.target_base: num_cases = 1
-            #num_cases = 2
 
             for i in range(num_cases):
+                if num_cases==2 and i==0:
+                    continue
                 #print('\t idx',i)
                 po_labels, pi_delays = None,None
                 start_idx = 0
@@ -377,7 +390,8 @@ def train(model):
                 sampled_graphs.ndata['delay'] = pi_delays.to(device)
 
                 graphs_info = {}
-                #graphs_info = train_data[1]
+                #graphs_info = train_data[idxs[0]]
+
 
                 graphs_info['is_heter'] = is_heter(sampled_graphs)
                 graphs_info['topo'] = [l.to(device) for l in topo_levels]
@@ -451,7 +465,7 @@ if __name__ == "__main__":
         # print(options)
         # exit()
         model = init_model(options)
-        model.flag_train = False
+        model.flag_train = True
 
         # if options.flag_reverse:
         #     if options.pi_choice == 0: model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
