@@ -89,10 +89,12 @@ class TimeConv(nn.Module):
             out_dim = hidden_dim * 2
         if flag_attn:
             hidden_dim_attn = int(hidden_dim/8)
-            atnn_dim_m = hidden_dim + hidden_dim_attn *2
+            atnn_dim_m = hidden_dim + hidden_dim_attn *3
+            atnn_dim_g = hidden_dim + hidden_dim_attn
             self.mlp_type = MLP(self.infeat_dim2, hidden_dim_attn, hidden_dim_attn)
             self.mlp_pos = MLP(1, hidden_dim_attn, hidden_dim_attn)
-            self.attention_vector_g = nn.Parameter(th.randn(hidden_dim, 1), requires_grad=True)
+            self.mlp_level = MLP(1, hidden_dim_attn, hidden_dim_attn)
+            self.attention_vector_g = nn.Parameter(th.randn(atnn_dim_g, 1), requires_grad=True)
             self.attention_vector_m = nn.Parameter(th.randn(atnn_dim_m,1),requires_grad=True)
         # if flag_reverse:
         #     if self.pi_choice==0: self.mlp_global_pi = MLP(1, int(hidden_dim / 2), hidden_dim)
@@ -152,8 +154,12 @@ class TimeConv(nn.Module):
             return {'h': h}
 
     def edge_msg_module(self,edges):
-        z = th.cat((self.mlp_type(edges.dst[self.feat_name2]), self.mlp_pos(edges.data['bit_position'].unsqueeze(1)),
-                    edges.src['h']), dim=1)
+        m_type = self.mlp_type(edges.dst[self.feat_name2])
+        m_pos =  self.mlp_pos(edges.data['bit_position'].unsqueeze(1))
+        m_level = self.mlp_level(edges.src['level'])
+        #m_pos = self.mlp_pos(th.cat((edges.data['bit_position'].unsqueeze(1),edges.src['level']),dim=1))
+        z = th.cat((m_type,m_pos,m_level,edges.src['h']), dim=1)
+
         e = th.matmul(z, self.attention_vector_m)
 
         return {'attn_e':e}
@@ -197,7 +203,10 @@ class TimeConv(nn.Module):
 
 
     def edge_msg_gate(self,edges):
-        z = edges.src['h']
+
+        #z = edges.src['h']
+        m_level = self.mlp_level(edges.src['level'])
+        z = th.cat((m_level,edges.src['h']),dim=1)
         e = th.matmul(z, self.attention_vector_g)
         # print('g',e.shape)
         # print(e)
