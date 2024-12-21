@@ -95,8 +95,8 @@ class Parser:
         self.pi_delay = {}
         self.po_labels = {}
         self.nicknames = {}
-        self.buf_types = ['buf','not']
-        #self.buf_types = ['buf']
+        #self.buf_types = ['buf','not']
+        self.buf_types = ['buf']
 
     def is_constant(self,node):
         if "1'b0" in node or self.nodes.get(node,{}).get('ntype')=="1'b0":
@@ -398,6 +398,8 @@ class Parser:
                             num_inv += 1
                     is_inv = num_inv%2
                     bit_position = fo2fi_bit_position.get((cell_name,fanin),None)
+                    # if self.nodes[fanout]['ntype'] in ['ne','eq']:
+                    #     bit_position = 0
                     src_list.append((src,bit_position,is_inv))
                     self.edges.append(
                         (src, dst, {'bit_position': bit_position,'is_inv':is_inv})
