@@ -133,12 +133,18 @@ class Parser:
             for v in values:
                 if v == "0":
                     self.const0_index += 1
-                    node = "1'b0_{}".format(self.const0_index)
+                    if options.flag_split01:
+                        node = "1'b0_{}".format(self.const0_index)
+                    else:
+                        node = "1'b0"
                     self.nodes[node] = {'ntype': "1'b0", 'is_po': False,'is_module':0}
                     res.append(node)
                 elif v == "1":
                     self.const1_index += 1
-                    node = "1'b1_{}".format(self.const1_index)
+                    if options.flag_split01:
+                        node = "1'b1_{}".format(self.const1_index)
+                    else:
+                        node = "1'b1"
                     self.nodes[node] = {'ntype': "1'b1", 'is_po': False,'is_module':0}
                     res.append(node)
                 else:
@@ -491,12 +497,15 @@ class Parser:
         is_inv = [[],[]]
         for eid, (src, dst, edict) in enumerate(self.edges):
             #print(src,dst)
+
+            assert nodes_value[node2nid[dst]] not in [0,1]
             edge_set_idx = is_module[node2nid[dst]]
 
             if node2nid.get(src,None) is not None:
                 src_nodes[edge_set_idx].append(node2nid[src])
                 dst_nodes[edge_set_idx].append(node2nid[dst])
                 is_inv[edge_set_idx].append(edict['is_inv'])
+
                 if edge_set_idx==1:
                     bit_position.append(edict['bit_position'])
 
@@ -537,11 +546,14 @@ class Parser:
 
         # get the topological level of the PO nodes
         topo = gen_topo(graph)
+        nodes_level = th.zeros((len(nodes_name),1),dtype=th.float)
         PO2level = {}
         for l, nodes in enumerate(gen_topo(graph)):
             for n in nodes.numpy().tolist():
+                nodes_level[n][0] = l
                 if n in POs_nid:
                     PO2level[n] = l
+        graph.ndata['level'] = nodes_level
         POs_level = [PO2level[n] for n in POs_nid]
 
         # filter out the POs that have abnormal label (large topo level but zero delay)
@@ -656,7 +668,7 @@ def main():
                 continue
             # if int(design.split('_')[-1]) in [319,383,392]:
             #     continue
-            # if '00097' not in design:
+            # if '00099' not in design:
             #     continue
 
             design_dir = os.path.join(subdir_path,design)

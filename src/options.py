@@ -29,6 +29,7 @@ def get_options(args=None):
     parser.add_argument("--gpu",type=int,help='index of gpu. Type: int')
     parser.add_argument('--data_savepath',type=str,help='the directory that contains the dataset. Type: str',default='../data/arith_blocks')
     parser.add_argument('--predict_path',type=str,help='the directory used to save the prediction result. Type: str',default='../prediction/example')
+    parser.add_argument('--flag_split01',action='store_true',help="control whether use seperate node for each constant (1'b0,1'b1)")
     options = parser.parse_args(args)
 
 

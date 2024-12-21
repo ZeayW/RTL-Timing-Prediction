@@ -148,7 +148,7 @@ def test(model,test_data,test_idx_loader):
             #     sampled_graphs = add_reverse_edges(sampled_graphs)
             # if options.target_base: num_cases = 1
             #num_cases = 2
-            #print(data['design_name'])
+            print(data['design_name'])
             for i in range(num_cases):
                 if num_cases==2 and i==0:
                     continue
@@ -192,9 +192,9 @@ def test(model,test_data,test_idx_loader):
                 cur_labels_hat, path_loss = model(sampled_graphs, graphs_info)
                 # cur_r2 = R2_score(cur_labels_hat, cur_labels).item()
                 # cur_mape = th.mean(th.abs(cur_labels_hat[cur_labels != 0] - cur_labels[cur_labels != 0]) / cur_labels[cur_labels != 0])
-                # print(graphs_info['design_name'])
-                # print(i,"R2={:.2f} mape={:.3f}".format(cur_r2,cur_mape))
-                # exit()
+                #print(graphs_info['design_name'])
+                #print(i,"R2={:.2f} mape={:.3f}".format(cur_r2,cur_mape))
+                #exit()
                 if labels_hat is None:
                     labels_hat = cur_labels_hat
                     labels = cur_labels
@@ -203,7 +203,7 @@ def test(model,test_data,test_idx_loader):
                     labels_hat = th.cat((labels_hat, cur_labels_hat), dim=0)
                     labels = th.cat((labels, cur_labels), dim=0)
                     POs_topo = th.cat((POs_topo, POs_topolevel), dim=0)
-
+            #exit()
         test_loss = Loss(labels_hat, labels).item()
 
         test_r2 = R2_score(labels_hat, labels).item()
@@ -409,8 +409,9 @@ def train(model):
                 # print(labels)
                 # print(labels_hat)
                 #exit()
+                #print(train_loss.item())
                 if options.flag_path_supervise:
-                    #print(train_loss,-path_loss)
+                    #print(train_loss.item(),path_loss.item())
                     #print(model.state_dict()['mlp_neigh_module.layers.0.weight'])
                     train_loss += -path_loss
                     #train_loss = -path_loss
