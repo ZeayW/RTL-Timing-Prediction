@@ -319,7 +319,7 @@ class TimeConv(nn.Module):
                     if graph_info['is_heter']:
                         nodes_gate = nodes[isGate_mask]
                         nodes_module = nodes[isModule_mask]
-                        if len(nodes_gate)!=0: graph.pull(nodes_gate, fn.copy_src('h', 'm'), fn.mean('m', 'neigh'), self.nodes_func_gate, etype='intra_gate')
+                        if len(nodes_gate)!=0: graph.pull(nodes_gate, fn.copy_src('h', 'm'), self.reduce_func_smoothmax, self.nodes_func_gate, etype='intra_gate')
                         if len(nodes_module)!=0: graph.pull(nodes_module, fn.copy_src('h', 'm'), fn.mean('m', 'neigh'), self.nodes_func_module, etype='intra_module')
                     else:
                         graph.pull(nodes, fn.copy_src('h', 'm'), fn.mean('m', 'neigh'), self.nodes_func)
