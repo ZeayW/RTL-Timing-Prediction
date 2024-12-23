@@ -3,6 +3,7 @@ import argparse
 
 def get_options(args=None):
     parser = argparse.ArgumentParser()
+    parser.add_argument('--quick',action='store_true')
     parser.add_argument('--flag_path_supervise', action='store_true')
     parser.add_argument('--pretrain_dir', type=str)
     parser.add_argument('--pi_choice',type=int,default=0)

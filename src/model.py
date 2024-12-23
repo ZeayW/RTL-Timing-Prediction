@@ -89,11 +89,12 @@ class TimeConv(nn.Module):
             out_dim = hidden_dim * 2
         if flag_attn:
             hidden_dim_attn = int(hidden_dim/8)
-            atnn_dim_m = hidden_dim + hidden_dim_attn *2
-            atnn_dim_g = hidden_dim + hidden_dim_attn *0
+            atnn_dim_m = hidden_dim + hidden_dim_attn *3
+            atnn_dim_g = hidden_dim + hidden_dim_attn *1
             self.mlp_type = MLP(self.infeat_dim2, hidden_dim_attn, hidden_dim_attn)
             self.mlp_pos = MLP(1, hidden_dim_attn, hidden_dim_attn)
-            #self.mlp_level = MLP(1, hidden_dim_attn, hidden_dim_attn)
+            self.mlp_level = MLP(1, hidden_dim_attn, hidden_dim_attn)
+            self.mlp_level_m = MLP(1, hidden_dim_attn, hidden_dim_attn)
             self.attention_vector_g = nn.Parameter(th.randn(atnn_dim_g, 1), requires_grad=True)
             self.attention_vector_m = nn.Parameter(th.randn(atnn_dim_m,1),requires_grad=True)
         # if flag_reverse:
@@ -106,7 +107,6 @@ class TimeConv(nn.Module):
 
         # initialize the parameters
         # self.reset_parameters()
-
 
     def nodes_func(self,nodes):
         if self.flag_attn:
@@ -163,9 +163,9 @@ class TimeConv(nn.Module):
     def edge_msg_module(self, edges):
         m_type = self.mlp_type(edges.dst[self.feat_name2])
         m_pos = self.mlp_pos(edges.data['bit_position'].unsqueeze(1))
-        #m_level = self.mlp_level(edges.src['level'])
+        m_level = self.mlp_level_m(edges.data['rating'])
         # m_pos = self.mlp_pos(th.cat((edges.data['bit_position'].unsqueeze(1),edges.src['level']),dim=1))
-        z = th.cat((m_type, m_pos, edges.src['h']), dim=1)
+        z = th.cat((m_type, m_pos, m_level,edges.src['h']), dim=1)
 
         e = th.matmul(z, self.attention_vector_m)
 
@@ -195,9 +195,9 @@ class TimeConv(nn.Module):
 
     def edge_msg_gate(self, edges):
 
-        z = edges.src['h']
-        #m_level = self.mlp_level(edges.src['level'])
-        #z = th.cat((m_level, edges.src['h']), dim=1)
+        #z = edges.src['h']
+        m_level = self.mlp_level(edges.data['rating'])
+        z = th.cat((m_level, edges.src['h']), dim=1)
         e = th.matmul(z, self.attention_vector_g)
         return {'attn_e': e}
 

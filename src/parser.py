@@ -79,7 +79,29 @@ gate_func_map = {
 }
 
 
+def edges_srcLevel_rating(graph,nodes_level,etype):
+    src_level = {}
+    dsts = set()
+    intra_gate_edges = graph.edges('all', etype=etype)[:2]
+    intra_gate_edges = list(zip(intra_gate_edges[0].numpy().tolist(), intra_gate_edges[1].numpy().tolist()))
+    edges_level_rating = th.zeros((len(intra_gate_edges), 1), dtype=th.float)
+    for i, (src, dst) in enumerate(intra_gate_edges):
+        dsts.add(dst)
+        src_level[dst] = src_level.get(dst, [])
+        src_level[dst].append((src, nodes_level[src], i))
+    for dst in dsts:
+        cur_src_level = src_level[dst]
+        cur_src_level.sort(key=lambda x: x[1])
+        cur_src_level.reverse()
+        rating = 0
+        pre_level = -1
+        for j, (src, level, eid) in enumerate(cur_src_level):
+            if level!=pre_level:
+                rating += 1
+            pre_level = level
+            edges_level_rating[eid] = rating
 
+    return edges_level_rating
 
 class Parser:
     def __init__(self,design_dir):
@@ -400,6 +422,7 @@ class Parser:
                     bit_position = fo2fi_bit_position.get((cell_name,fanin),None)
                     # if self.nodes[fanout]['ntype'] in ['ne','eq']:
                     #     bit_position = 0
+
                     src_list.append((src,bit_position,is_inv))
                     self.edges.append(
                         (src, dst, {'bit_position': bit_position,'is_inv':is_inv})
@@ -557,6 +580,10 @@ class Parser:
                     PO2level[n] = l
         graph.ndata['level'] = nodes_level
         POs_level = [PO2level[n] for n in POs_nid]
+
+        nodes_level = nodes_level.squeeze(1).numpy().tolist()
+        graph.edges['intra_gate'].data['rating'] = edges_srcLevel_rating(graph,nodes_level,'intra_gate')
+        graph.edges['intra_module'].data['rating'] = edges_srcLevel_rating(graph, nodes_level, 'intra_module')
 
         # filter out the POs that have abnormal label (large topo level but zero delay)
         remain_pos_idx = []

@@ -91,14 +91,18 @@ def load_data(usage):
 
         graph_info['graph'] = graph
         #graph_info['PI_mask'] = PI_mask
-        #graph_info['delay-label_pairs'] = graph_info['delay-label_pairs'][1:]
+        if options.quick and usage=='train':
+            graph_info['delay-label_pairs'] = graph_info['delay-label_pairs'][:20]
+        elif options.quick and usage!='train':
+            graph_info['delay-label_pairs'] = graph_info['delay-label_pairs'][:40]
         loaded_data.append(graph_info)
 
     batch_size = options.batch_size
     if usage=='test':
         batch_size = batch_size*4
     drop_last = True if usage == 'train' else False
-    #drop_last = False
+    drop_last = False
+
     sampler = SubsetRandomSampler(th.arange(len(loaded_data)))
 
     idx_loader = DataLoader([i for i in range(len(loaded_data))], sampler=sampler, batch_size=batch_size,
@@ -454,7 +458,7 @@ if __name__ == "__main__":
         options.flag_path_supervise = input_options.flag_path_supervise
         options.flag_reverse = input_options.flag_reverse
         options.pi_choice = input_options.pi_choice
-
+        options.quick = False
 
         # print(options)
         # exit()
