@@ -176,11 +176,10 @@ def test(model,test_data,test_idx_loader):
                 for i, po in enumerate(POs):
                     sampled_graphs.ndata['hp'][po][i] = 1
 
-            #num_cases = 2
+
+            
             #print(data['design_name'])
             for i in range(num_cases):
-                if num_cases==2 and i==0:
-                    continue
                 po_labels, pi_delays = None,None
                 for data in sampled_data:
                     if options.target_residual:
@@ -205,6 +204,8 @@ def test(model,test_data,test_idx_loader):
 
                 cur_labels = sampled_graphs.ndata['label'][graphs_info['POs_mask']].to(device)
                 cur_labels_hat, path_loss = model(sampled_graphs, graphs_info)
+
+                #(cur_labels[(graphs_info['POs_feat']-cur_labels) > 10])
                 # cur_r2 = R2_score(cur_labels_hat, cur_labels).item()
                 # cur_mape = th.mean(th.abs(cur_labels_hat[cur_labels != 0] - cur_labels[cur_labels != 0]) / cur_labels[cur_labels != 0])
                 #print(graphs_info['design_name'])
@@ -219,6 +220,7 @@ def test(model,test_data,test_idx_loader):
                     labels = th.cat((labels, cur_labels), dim=0)
                     POs_topo = th.cat((POs_topo, POs_topolevel), dim=0)
             #exit()
+
         test_loss = Loss(labels_hat, labels).item()
 
         test_r2 = R2_score(labels_hat, labels).item()
@@ -458,7 +460,7 @@ if __name__ == "__main__":
         options.flag_path_supervise = input_options.flag_path_supervise
         options.flag_reverse = input_options.flag_reverse
         options.pi_choice = input_options.pi_choice
-        options.quick = False
+        options.quick = True
 
         # print(options)
         # exit()
