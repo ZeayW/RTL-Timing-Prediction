@@ -72,7 +72,7 @@ def load_data(usage):
         graph.ndata['feat'] = graph.ndata['ntype'][:,3:]
 
         # print(th.sum(graph.ndata['value'][:,0])+th.sum(graph.ndata['value'][:,1])+th.sum(graph.ndata['is_pi'])+th.sum(graph.ndata['feat']),th.sum(graph.ndata['ntype']))
-
+        graph.ndata['width'] = graph.ndata['width'].unsqueeze(1)
         graph.ndata['feat_module'] = graph.ndata['ntype_module']
         graph.ndata['feat_gate'] = graph.ndata['ntype_gate']
         graph_info['POs_feat'] = graph_info['POs_level_max'].unsqueeze(-1)
@@ -114,6 +114,10 @@ def init_model(options):
             infeat_dim1=num_gate_types,
             infeat_dim2=num_module_types,
             hidden_dim=options.hidden_dim,
+            flag_width=options.flag_width,
+            flag_delay_m=options.flag_delay_m,
+            flag_delay_g=options.flag_delay_g,
+            flag_ntype_g=options.flag_ntype_g,
             flag_path_supervise=options.flag_path_supervise,
             flag_filter = options.flag_filter,
             flag_reverse=options.flag_reverse,
@@ -176,10 +180,11 @@ def test(model,test_data,test_idx_loader):
                 for i, po in enumerate(POs):
                     sampled_graphs.ndata['hp'][po][i] = 1
 
-
-            
-            #print(data['design_name'])
+            # num_cases = 2
+            # print(data['design_name'])
             for i in range(num_cases):
+                # if num_cases==2 and i==0:
+                #     continue
                 po_labels, pi_delays = None,None
                 for data in sampled_data:
                     if options.target_residual:
@@ -460,7 +465,7 @@ if __name__ == "__main__":
         options.flag_path_supervise = input_options.flag_path_supervise
         options.flag_reverse = input_options.flag_reverse
         options.pi_choice = input_options.pi_choice
-        options.quick = True
+        options.quick = False
 
         # print(options)
         # exit()

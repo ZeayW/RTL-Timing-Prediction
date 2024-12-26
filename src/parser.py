@@ -301,32 +301,40 @@ class Parser:
                         else:
                             self.nodes[n]['ntype'] = gate_type
                             self.nodes[n]['is_module'] = 1
+
                         ntype2id[gate_type] = ntype2id.get(gate_type, len(ntype2id))
                         ntype2id_module[gate_type] = ntype2id_module.get(gate_type, len(ntype2id_module))
                         fo2fi[n] = []
                         self.fo2fi[n] = ('module', gate_name,[])
 
+
+                    width = 0
                     # add the edges between fanin nodes and fanout nodes
                     for port, fanin_nodes in io_nodes.items():
                         for idx,fi in enumerate(fanin_nodes):
                             fo2fi_bit_position[(gate_name,fi)] = len(fanin_nodes) - idx
+
                             #fanins_bit_position[fi] = len(fanin_nodes) - idx
                         fanin_nodes.reverse()
+
                         if port == 'o':
                             continue
-
                         # for port i0,i1: link fi_i[j...0] with fo[j]
                         elif port.startswith('i') and len(fanout_nodes)!=1 and gate_type not in ['encoder','decoder']:
 
                             for i, fanout_node in enumerate(fanout_nodes):
                                 fo2fi[fanout_node].extend(fanin_nodes[:i+1])
                                 self.fo2fi[fanout_node][2].extend(fanin_nodes[:i+1])
+                                self.nodes[fanout_node]['width'] = i+1
+
                         # for port sel or one output modules, e.g., eq, lt: link all fi_s with each fo
                         else:
                             for i, fanout_node in enumerate(fanout_nodes):
                                 fo2fi[fanout_node].extend(fanin_nodes)
                                 self.fo2fi[fanout_node][2].extend(fanin_nodes)
+                                self.nodes[fanout_node]['width'] = len(fanin_nodes)
 
+                        #width = max(len(fanin_nodes), width)
                 # deal with other one-output gates, e.g., or, and...
                 else:
                     # get the paramater list
@@ -343,6 +351,7 @@ class Parser:
                     fo2fi[fanout_node] = fanin_nodes
                     self.fo2fi[fanout_node] = ('gate', gate_name,fanin_nodes)
                     self.nodes[fanout_node]['ntype'] = gate_type
+
 
 
         # deal with the constant inputs (1'b0/1) iteratively
@@ -440,6 +449,7 @@ class Parser:
                 if self.nodes[fanout]['is_po'] and self.nodes[src]['ntype'] in ["input", "1'b0", "1'b1"]:
                     assert not visited_po.get(fanout,False)
                     self.nodes[fanout]['ntype'] = self.nodes[src]['ntype']
+                    self.nodes[fanout]['width'] = self.nodes[src].get('width',0)
                     self.nicknames[fanout] = src
                     visited_po[fanout] = True
                 continue
@@ -474,7 +484,7 @@ class Parser:
         graph_info = {}
         node2nid = {}
         nid2node = {}
-        nodes_type,nodes_value,nodes_delay,nodes_name, POs_label = [],[],[],[],[]
+        nodes_type,nodes_value,nodes_delay,nodes_name, nodes_width,POs_label, = [],[],[],[],[],[]
         is_po,is_pi= [],[]
         is_module = []
         for node,node_info in self.nodes.items():
@@ -492,7 +502,7 @@ class Parser:
                 exit()
 
             is_module.append(node_info['is_module'])
-
+            nodes_width.append(node_info.get('width',0))
             if node_info['ntype'] == "1'b0":
                 nodes_value.append(0)
             elif node_info['ntype'] == "1'b1":
@@ -544,6 +554,7 @@ class Parser:
         graph.ndata['is_po'] = th.tensor(is_po)
         graph.ndata['is_pi'] = th.tensor(is_pi)
         graph.ndata['is_module'] = th.tensor(is_module)
+        graph.ndata['width'] = th.tensor(nodes_width,dtype=th.float).unsqueeze(1)
         graph.ndata['value'] = nodes_valueOnehot
         graph.edges['intra_module'].data['bit_position'] = th.tensor(bit_position, dtype=th.float)
         graph.edges['intra_module'].data['is_inv'] = th.tensor(is_inv[1], dtype=th.float)
