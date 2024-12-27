@@ -117,6 +117,7 @@ def init_model(options):
             flag_width=options.flag_width,
             flag_delay_m=options.flag_delay_m,
             flag_delay_g=options.flag_delay_g,
+            flag_delay_pi=options.flag_delay_pi,
             flag_ntype_g=options.flag_ntype_g,
             flag_path_supervise=options.flag_path_supervise,
             flag_filter = options.flag_filter,
@@ -206,6 +207,7 @@ def test(model,test_data,test_idx_loader):
 
                 sampled_graphs.ndata['label'] = po_labels.to(device)
                 sampled_graphs.ndata['delay'] = pi_delays.to(device)
+                sampled_graphs.ndata['input_delay'] = pi_delays.to(device)
 
                 cur_labels = sampled_graphs.ndata['label'][graphs_info['POs_mask']].to(device)
                 cur_labels_hat, path_loss = model(sampled_graphs, graphs_info)
@@ -404,6 +406,7 @@ def train(model):
 
                 sampled_graphs.ndata['label'] = po_labels.to(device)
                 sampled_graphs.ndata['delay'] = pi_delays.to(device)
+                sampled_graphs.ndata['input_delay'] = pi_delays.to(device)
 
                 labels_hat,path_loss = model(sampled_graphs, graphs_info)
                 labels = sampled_graphs.ndata['label'][graphs_info['POs_mask']].to(device)

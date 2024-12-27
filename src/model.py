@@ -40,6 +40,7 @@ class TimeConv(nn.Module):
                  flag_width=False,
                  flag_delay_m=False,
                  flag_delay_g=False,
+                 flag_delay_pi=False,
                  flag_ntype_g=False,
                  flag_train=True,
                  flag_path_supervise=False,
@@ -54,6 +55,7 @@ class TimeConv(nn.Module):
         self.flag_width = flag_width
         self.flag_delay_m = flag_delay_m
         self.flag_delay_g = flag_delay_g
+        self.flag_delay_pi = flag_delay_pi
         self.flag_ntype_g = flag_ntype_g
         self.pi_choice = pi_choice
         self.flag_train = flag_train
@@ -80,15 +82,15 @@ class TimeConv(nn.Module):
         else:
             self.feat_name1 = 'feat'
             self.feat_name2 = 'feat'
-            self.infeat_dim2 = infeat_dim2 + infeat_dim1 + 1
+            self.infeat_dim2 = infeat_dim2 + infeat_dim1
             self.infeat_dim1 = infeat_dim2 + infeat_dim1
             if self.agg_choice==0:
-                self.mlp_self = MLP(infeat_dim1, int(hidden_dim / 2), hidden_dim)
+                self.mlp_self = MLP(self.infeat_dim1, int(hidden_dim / 2), hidden_dim)
                 self.mlp_self_module = self.mlp_self
                 self.mlp_self_gate = self.mlp_self
             else:
-                self.mlp_self_gate = MLP(infeat_dim1, int(hidden_dim / 2), hidden_dim)
-                self.mlp_self_module = MLP(infeat_dim2, int(hidden_dim / 2), hidden_dim)
+                self.mlp_self_gate = MLP(self.infeat_dim1, int(hidden_dim / 2), hidden_dim)
+                self.mlp_self_module = MLP(self.infeat_dim2+1, int(hidden_dim / 2), hidden_dim)
         if flag_homo:
             self.mlp_neigh = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
         else:
@@ -149,11 +151,13 @@ class TimeConv(nn.Module):
     def nodes_func_module(self,nodes):
 
         mask = nodes.data['is_po'].squeeze() != 1
+        m_self = th.cat((nodes.data['width'], nodes.data[self.feat_name2]), dim=1)
+        if self.flag_delay_pi:
+            m_self = th.cat((m_self, nodes.ndata['input_delay']), dim=1)
         if self.agg_choice ==0:
-            h = th.cat((nodes.data['neigh'], nodes.data['width'], nodes.data[self.feat_name2]), dim=1)
+            h = th.cat((nodes.data['neigh'], m_self), dim=1)
             h = self.mlp_neigh_module(h)
         else:
-            m_self = th.cat((nodes.data['width'], nodes.data[self.feat_name2]), dim=1)
             h = self.mlp_neigh_module(nodes.data['neigh']) + self.mlp_self_module(m_self)
 
         h[mask] = self.activation(h[mask])
@@ -166,12 +170,13 @@ class TimeConv(nn.Module):
     def nodes_func_gate(self,nodes):
 
         mask = nodes.data['is_po'].squeeze() != 1
-
+        m_self = nodes.data[self.feat_name1]
+        if self.flag_delay_pi:
+            m_self = th.cat((m_self,nodes.ndata['input_delay']),dim=1)
         if self.agg_choice ==0:
-            h = th.cat((nodes.data['neigh'], nodes.data[self.feat_name1]), dim=1)
+            h = th.cat((nodes.data['neigh'], m_self), dim=1)
             h = self.mlp_neigh_gate(h)
         else:
-            m_self = nodes.data[self.feat_name2]
             h = self.mlp_neigh_gate(nodes.data['neigh']) + self.mlp_self_gate(m_self)
         h[mask] = self.activation(h[mask])
         if self.flag_reverse and self.attn_choice == 1:
@@ -288,13 +293,13 @@ class TimeConv(nn.Module):
 
     def reduce_func_delay_g(self,nodes):
         delay = th.max(nodes.mailbox['md'],dim=1).values+0.3
-
-        return {'delay':delay}
+        input_delay = th.max(nodes.mailbox['md'],dim=1).values
+        return {'delay':delay,'input_delay':input_delay}
 
     def reduce_func_delay_m(self,nodes):
         delay = th.max(nodes.mailbox['md'],dim=1).values+0.6
-
-        return {'delay':delay}
+        input_delay = th.max(nodes.mailbox['md'], dim=1).values
+        return {'delay':delay,'input_delay':input_delay}
 
     def edge_msg_delay_ratio_m(self,edges):
 
@@ -334,7 +339,7 @@ class TimeConv(nn.Module):
                     #eids = graph.in_edges(nodes_module, form='eid', etype='intra_module')
                     graph.pull(nodes_module, self.message_func_delay, self.reduce_func_delay_m, etype='intra_module')
                     #graph.apply_edges(self.edge_msg_delay_ratio_m,eids,etype='intra_module')
-        return graph.ndata['delay']
+        return graph.ndata['delay'], graph.ndata['input_delay']
 
     def prop_backward(self,graph,graph_info):
         topo_r = graph_info['topo_r']
@@ -350,12 +355,13 @@ class TimeConv(nn.Module):
 
         with graph.local_scope():
 
-            nodes_delay = self.prop_delay(graph,graph_info)
+            nodes_delay,nodes_inputDelay = self.prop_delay(graph,graph_info)
             # print(graph.ndata['level'][PO_mask].squeeze(1))
             # print(nodes_delay[PO_mask].squeeze(1))
             # print(graph.ndata['label'][PO_mask].squeeze(1))
             # exit()
             graph.ndata['level'] = nodes_delay
+            graph.ndata['input_delay'] = nodes_inputDelay
             #graph.ndata['level'] = nodes_delay
             #print(graph.edges['intra_module'].data['ratio'])
 
