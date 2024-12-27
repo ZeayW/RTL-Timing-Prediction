@@ -161,7 +161,7 @@ class TimeConv(nn.Module):
         mask = nodes.data['is_po'].squeeze() != 1
         m_self = th.cat((nodes.data['width'], nodes.data[self.feat_name2]), dim=1)
         if self.flag_delay_pi:
-            m_self = th.cat((m_self, nodes.ndata['input_delay']), dim=1)
+            m_self = th.cat((m_self, nodes.data['input_delay']), dim=1)
         if self.agg_choice ==0:
             h = th.cat((nodes.data['neigh'], m_self), dim=1)
             h = self.mlp_neigh_module(h)
@@ -180,7 +180,7 @@ class TimeConv(nn.Module):
         mask = nodes.data['is_po'].squeeze() != 1
         m_self = nodes.data[self.feat_name1]
         if self.flag_delay_pi:
-            m_self = th.cat((m_self,nodes.ndata['input_delay']),dim=1)
+            m_self = th.cat((m_self,nodes.data['input_delay']),dim=1)
         if self.agg_choice ==0:
             h = th.cat((nodes.data['neigh'], m_self), dim=1)
             h = self.mlp_neigh_gate(h)
