@@ -89,8 +89,13 @@ class TimeConv(nn.Module):
                 self.mlp_self_module = self.mlp_self
                 self.mlp_self_gate = self.mlp_self
             else:
-                self.mlp_self_gate = MLP(self.infeat_dim1, int(hidden_dim / 2), hidden_dim)
-                self.mlp_self_module = MLP(self.infeat_dim2+1, int(hidden_dim / 2), hidden_dim)
+                feat_self_g_dim = self.infeat_dim1
+                feat_self_m_dim = self.infeat_dim2+1
+                if self.flag_delay_pi:
+                    feat_self_g_dim += 1
+                    feat_self_m_dim += 1
+                self.mlp_self_gate = MLP(feat_self_g_dim, int(hidden_dim / 2), hidden_dim)
+                self.mlp_self_module = MLP(feat_self_m_dim, int(hidden_dim / 2), hidden_dim)
         if flag_homo:
             self.mlp_neigh = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
         else:
@@ -100,6 +105,9 @@ class TimeConv(nn.Module):
             else:
                 neigh_dim_m = hidden_dim
                 neigh_dim_g = hidden_dim
+            if self.flag_delay_pi:
+                neigh_dim_m += 1
+                neigh_dim_g += 1
             self.mlp_neigh_module = MLP(neigh_dim_m, int(hidden_dim / 2), hidden_dim)
             self.mlp_neigh_gate = MLP(neigh_dim_g, int(hidden_dim / 2), hidden_dim)
         if flag_global:
