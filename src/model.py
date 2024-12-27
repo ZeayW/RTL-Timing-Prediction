@@ -80,16 +80,24 @@ class TimeConv(nn.Module):
         else:
             self.feat_name1 = 'feat'
             self.feat_name2 = 'feat'
-            self.mlp_self = MLP(infeat_dim1+infeat_dim2, int(hidden_dim / 2), hidden_dim)
-            self.mlp_self_module = self.mlp_self
-            self.mlp_self_gate = self.mlp_self
-            self.infeat_dim2 = infeat_dim2 + infeat_dim1
+            self.infeat_dim2 = infeat_dim2 + infeat_dim1 + 1
             self.infeat_dim1 = infeat_dim2 + infeat_dim1
+            if self.agg_choice==0:
+                self.mlp_self = MLP(infeat_dim1, int(hidden_dim / 2), hidden_dim)
+                self.mlp_self_module = self.mlp_self
+                self.mlp_self_gate = self.mlp_self
+            else:
+                self.mlp_self_gate = MLP(infeat_dim1, int(hidden_dim / 2), hidden_dim)
+                self.mlp_self_module = MLP(infeat_dim2, int(hidden_dim / 2), hidden_dim)
         if flag_homo:
             self.mlp_neigh = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
         else:
-            neigh_dim_m = hidden_dim + self.infeat_dim2 + 1
-            neigh_dim_g = hidden_dim + self.infeat_dim1
+            if self.agg_choice==0:
+                neigh_dim_m = hidden_dim + self.infeat_dim2 + 1
+                neigh_dim_g = hidden_dim + self.infeat_dim1
+            else:
+                neigh_dim_m = hidden_dim
+                neigh_dim_g = hidden_dim
             self.mlp_neigh_module = MLP(neigh_dim_m, int(hidden_dim / 2), hidden_dim)
             self.mlp_neigh_gate = MLP(neigh_dim_g, int(hidden_dim / 2), hidden_dim)
         if flag_global:
@@ -141,13 +149,13 @@ class TimeConv(nn.Module):
     def nodes_func_module(self,nodes):
 
         mask = nodes.data['is_po'].squeeze() != 1
-        # if self.agg_choice in [0,1]:
-        #     h = self.mlp_neigh_module(nodes.data['neigh']) + self.mlp_self_module(nodes.data[self.feat_name2])
-        #     h[mask] = self.activation(h[mask])
-        # elif self.agg_choice in [2,3]:
-        #print(nodes.data['neigh'].shape,nodes.data['width'].shape)
-        h = th.cat((nodes.data['neigh'],nodes.data['width'],nodes.data[self.feat_name2]),dim=1)
-        h = self.mlp_neigh_module(h)
+        if self.agg_choice ==0:
+            h = th.cat((nodes.data['neigh'], nodes.data['width'], nodes.data[self.feat_name2]), dim=1)
+            h = self.mlp_neigh_module(h)
+        else:
+            m_self = th.cat((nodes.data['width'], nodes.data[self.feat_name2]), dim=1)
+            h = self.mlp_neigh_module(nodes.data['neigh']) + self.mlp_self_module(m_self)
+
         h[mask] = self.activation(h[mask])
 
         if self.flag_reverse:
@@ -159,11 +167,12 @@ class TimeConv(nn.Module):
 
         mask = nodes.data['is_po'].squeeze() != 1
 
-        # if self.agg_choice in [0,1]:
-        #     h = self.mlp_neigh_gate(nodes.data['neigh']) + self.mlp_self_gate(nodes.data[self.feat_name2])
-        # elif self.agg_choice in [2,3]:
-        h = th.cat((nodes.data['neigh'],nodes.data[self.feat_name1]),dim=1)
-        h = self.mlp_neigh_gate(h)
+        if self.agg_choice ==0:
+            h = th.cat((nodes.data['neigh'], nodes.data[self.feat_name1]), dim=1)
+            h = self.mlp_neigh_gate(h)
+        else:
+            m_self = nodes.data[self.feat_name2]
+            h = self.mlp_neigh_gate(nodes.data['neigh']) + self.mlp_self_gate(m_self)
         h[mask] = self.activation(h[mask])
         if self.flag_reverse and self.attn_choice == 1:
             return {'h': h, 'exp_src_sum': nodes.data['exp_src_sum'], 'exp_src_max': nodes.data['exp_src_max']}
@@ -318,13 +327,13 @@ class TimeConv(nn.Module):
                 nodes_gate = nodes[isGate_mask]
                 nodes_module = nodes[isModule_mask]
                 if len(nodes_gate)!=0:
-                    eids = graph.in_edges(nodes_gate, form='eid', etype='intra_gate')
+                    #eids = graph.in_edges(nodes_gate, form='eid', etype='intra_gate')
                     graph.pull(nodes_gate, self.message_func_delay, self.reduce_func_delay_g, etype='intra_gate')
-                    graph.apply_edges(self.edge_msg_delay_ratio_g, eids, etype='intra_gate')
+                    #graph.apply_edges(self.edge_msg_delay_ratio_g, eids, etype='intra_gate')
                 if len(nodes_module) != 0:
-                    eids = graph.in_edges(nodes_module, form='eid', etype='intra_module')
+                    #eids = graph.in_edges(nodes_module, form='eid', etype='intra_module')
                     graph.pull(nodes_module, self.message_func_delay, self.reduce_func_delay_m, etype='intra_module')
-                    graph.apply_edges(self.edge_msg_delay_ratio_m,eids,etype='intra_module')
+                    #graph.apply_edges(self.edge_msg_delay_ratio_m,eids,etype='intra_module')
         return graph.ndata['delay']
 
     def prop_backward(self,graph,graph_info):
