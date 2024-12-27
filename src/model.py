@@ -299,6 +299,7 @@ class TimeConv(nn.Module):
     def message_func_delay(self,edges):
         return {'md':edges.src['delay']}
 
+
     def reduce_func_delay_g(self,nodes):
         delay = th.max(nodes.mailbox['md'],dim=1).values+0.3
         input_delay = th.max(nodes.mailbox['md'],dim=1).values
@@ -362,16 +363,17 @@ class TimeConv(nn.Module):
         PO_feat = graph_info['POs_feat']
 
         with graph.local_scope():
+            if self.flag_delay_pi or self.flag_delay_g or self.flag_delay_m:
+                nodes_delay,nodes_inputDelay = self.prop_delay(graph,graph_info)
 
-            nodes_delay,nodes_inputDelay = self.prop_delay(graph,graph_info)
-            # print(graph.ndata['level'][PO_mask].squeeze(1))
-            # print(nodes_delay[PO_mask].squeeze(1))
-            # print(graph.ndata['label'][PO_mask].squeeze(1))
-            # exit()
-            graph.ndata['level'] = nodes_delay
-            graph.ndata['input_delay'] = nodes_inputDelay
-            #graph.ndata['level'] = nodes_delay
-            #print(graph.edges['intra_module'].data['ratio'])
+                # print(graph.ndata['level'][PO_mask].squeeze(1))
+                # print(nodes_delay[PO_mask].squeeze(1))
+                # print(graph.ndata['label'][PO_mask].squeeze(1))
+                # exit()
+                graph.ndata['level'] = nodes_delay
+                graph.ndata['input_delay'] = nodes_inputDelay
+                #graph.ndata['level'] = nodes_delay
+                #print(graph.edges['intra_module'].data['ratio'])
 
 
             if self.flag_reverse:
