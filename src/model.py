@@ -160,6 +160,9 @@ class TimeConv(nn.Module):
 
         mask = nodes.data['is_po'].squeeze() != 1
         m_self = th.cat((nodes.data['width'], nodes.data[self.feat_name2]), dim=1)
+
+        # print(th.sum(th.abs(nodes.data['width']-nodes.data['pos'])))
+        # # exit()
         if self.flag_delay_pi:
             m_self = th.cat((m_self, nodes.data['input_delay']), dim=1)
         if self.agg_choice ==0:
@@ -203,7 +206,7 @@ class TimeConv(nn.Module):
 
     def edge_msg_module(self, edges):
         m_type = self.mlp_type(edges.dst[self.feat_name2])
-        m_pos = edges.data['bit_position'].unsqueeze(1)
+        m_pos = edges.data['bit_position']
         if self.flag_width:
             m_pos = th.cat((m_pos,edges.dst['width']),dim=1)
         m_pos = self.mlp_pos(m_pos)
@@ -221,10 +224,31 @@ class TimeConv(nn.Module):
     def message_func_module(self,edges):
         #m = th.cat((edges.src['h'], edges.data['bit_position'].unsqueeze(1)), dim=1)
         m = edges.src['h']
-        return {'m':m,'attn_e':edges.data['attn_e']}
+        max_pos = th.max(edges.data['bit_position'])
+
+        #pos = edges.data['bit_position'].unsqueeze(1)
+        return {'m':m,'pos':edges.data['bit_position'],'attn_e':edges.data['attn_e']}
 
 
-    def reduce_func_attn(self,nodes):
+    def reduce_func_attn_m(self,nodes):
+
+        if self.flag_reverse:
+            attn_e = nodes.mailbox['attn_e']
+            max_attn_e = th.max(attn_e, dim=1).values
+            attn_e = attn_e - max_attn_e.unsqueeze(1)
+            attn_e_exp = th.exp(attn_e)
+            attn_exp_sum = th.sum(attn_e_exp, dim=1).unsqueeze(1)
+            alpha = attn_e_exp / attn_exp_sum
+            h = th.sum(alpha * nodes.mailbox['m'], dim=1)
+            return {'neigh':h,'pos':th.mean(nodes.mailbox['pos'],dim=1),'attn_sum':attn_exp_sum,'attn_max':max_attn_e}
+        else:
+            alpha = th.softmax(nodes.mailbox['attn_e'], dim=1)
+            h = th.sum(alpha * nodes.mailbox['m'], dim=1)
+            #print(th.mean(nodes.mailbox['pos'],dim=1),h.shape)
+
+            return {'neigh': h,'pos':th.mean(nodes.mailbox['pos'],dim=1)}
+
+    def reduce_func_attn_g(self,nodes):
 
         if self.flag_reverse:
             attn_e = nodes.mailbox['attn_e']
@@ -363,6 +387,8 @@ class TimeConv(nn.Module):
         PO_feat = graph_info['POs_feat']
 
         with graph.local_scope():
+            graph.edges['intra_module'].data['bit_position'] = graph.edges['intra_module'].data['bit_position'].unsqueeze(1)
+            #graph.ndata['pos'] = th.zeros((graph.number_of_nodes(),1),dtype=th.float).to(device)
             if self.flag_delay_pi or self.flag_delay_g or self.flag_delay_m:
                 nodes_delay,nodes_inputDelay = self.prop_delay(graph,graph_info)
 
@@ -393,7 +419,7 @@ class TimeConv(nn.Module):
                         nodes_gate = nodes[isGate_mask]
                         nodes_module = nodes[isModule_mask]
                         message_func_gate = self.message_func_gate if self.attn_choice==0 else fn.copy_src('h', 'm')
-                        reduce_func_gate = self.reduce_func_attn if self.attn_choice==0 else self.reduce_func_smoothmax
+                        reduce_func_gate = self.reduce_func_attn_g if self.attn_choice==0 else self.reduce_func_smoothmax
 
                         if len(nodes_gate)!=0:
                             if self.attn_choice == 0:
@@ -411,13 +437,13 @@ class TimeConv(nn.Module):
                         if len(nodes_module)!=0:
                             eids = graph.in_edges(nodes_module, form='eid', etype='intra_module')
                             graph.apply_edges(self.edge_msg_module, eids, etype='intra_module')
-                            graph.pull(nodes_module, self.message_func_module, self.reduce_func_attn, self.nodes_func_module, etype='intra_module')
+                            graph.pull(nodes_module, self.message_func_module, self.reduce_func_attn_m, self.nodes_func_module, etype='intra_module')
                             if self.flag_reverse:
                                 graph.apply_edges(self.edge_msg_module_weight, eids, etype='intra_module')
                                 eids_r = graph.out_edges(nodes_module, form='eid', etype='reverse')
                                 graph.edges['reverse'].data['weight'][eids_r] = graph.edges['intra_module'].data['weight'][eids]
                     else:
-                        graph.pull(nodes, self.message_func_attn, self.reduce_func_attn, self.nodes_func)
+                        graph.pull(nodes, self.message_func_attn, self.reduce_func_attn_g, self.nodes_func)
                 else:
                     if graph_info['is_heter']:
                         nodes_gate = nodes[isGate_mask]

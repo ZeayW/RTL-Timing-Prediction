@@ -215,6 +215,7 @@ class Parser:
         buf_o2i, buf_i2o = {}, {}
         fo2fi_bit_position = {}
 
+
         for sentence in content.split(';\n'):
             if len(sentence) == 0 or 'endmodule' in sentence:
                 continue
@@ -295,6 +296,16 @@ class Parser:
                     # set the node information for the fanout nodes
                     fanout_nodes = io_nodes['o']
                     fanout_nodes.reverse()
+                    if gate_type in ['decoder','encoder'] and len(io_nodes['i'])>=32:
+                        gate_type = 'input'
+                        for n in fanout_nodes:
+                            if self.nodes.get(n, None) is None and 'open' in n:
+                                self.nodes[n] = {'ntype': gate_type, 'is_po': False, 'is_module': 0}
+                            else:
+                                self.nodes[n]['ntype'] = gate_type
+                                self.nodes[n]['is_module'] = 0
+                        continue
+
                     for n in fanout_nodes:
                         if self.nodes.get(n, None) is None and 'open' in n:
                             self.nodes[n] = {'ntype': gate_type, 'is_po': False,'is_module':1}
@@ -431,11 +442,14 @@ class Parser:
                     bit_position = fo2fi_bit_position.get((cell_name,fanin),None)
                     # if self.nodes[fanout]['ntype'] in ['ne','eq']:
                     #     bit_position = 0
+                    # if bit_position is not None and bit_position>100:
+                    #     print(src,dst)
 
                     src_list.append((src,bit_position,is_inv))
                     self.edges.append(
                         (src, dst, {'bit_position': bit_position,'is_inv':is_inv})
                     )
+
                     is_linked[src] = True
                     is_linked[dst] = True
 
@@ -596,6 +610,7 @@ class Parser:
         graph.edges['intra_gate'].data['rating'] = edges_srcLevel_rating(graph,nodes_level,'intra_gate')
         graph.edges['intra_module'].data['rating'] = edges_srcLevel_rating(graph, nodes_level, 'intra_module')
 
+
         # filter out the POs that have abnormal label (large topo level but zero delay)
         remain_pos_idx = []
         for i,level in enumerate(POs_level):
@@ -610,6 +625,25 @@ class Parser:
         POs_level = filter_list(POs_level,remain_pos_idx)
         POs_name = filter_list(POs_name, remain_pos_idx)
         POs_nid = filter_list(POs_nid, remain_pos_idx)
+
+
+        #print(graph.edges(etype='intra_module'))
+        # src_m,dst_m = graph.edges(etype='intra_module')
+        # src_m=src_m.numpy().tolist()
+        # dst_m = dst_m.numpy().tolist()
+        # visited = {}
+        # for i,(src,dst) in enumerate(list(zip(src_m,dst_m))):
+        #     if visited.get(dst,False):
+        #         continue
+        #     bit_pos = graph.edges['intra_module'].data['bit_position'][i].item()
+        #     src_name = nodes_name[src]
+        #     dst_name = nodes_name[dst]
+        #
+            # if bit_pos>32 and nodes_type[dst] in ['decoder','encoder']:
+            #     visited[dst] = True
+            #     print('+++++',bit_pos,src_name,dst_name)
+
+                #exit()
 
         # save the necessary graph information
         graph_info['topo'] = topo
@@ -638,6 +672,8 @@ class Parser:
         if self.pi_delay is None:
             return None,None
         graph, graph_info = self.parse_verilog()
+        if graph is None:
+            return None,None
         graph_info['base_po_labels'] = self.po_labels
 
         return graph,graph_info

@@ -72,7 +72,7 @@ def load_data(usage):
         graph.ndata['feat'] = graph.ndata['ntype'][:,3:]
 
         # print(th.sum(graph.ndata['value'][:,0])+th.sum(graph.ndata['value'][:,1])+th.sum(graph.ndata['is_pi'])+th.sum(graph.ndata['feat']),th.sum(graph.ndata['ntype']))
-        graph.ndata['width'] = graph.ndata['width'].unsqueeze(1)
+        #graph.ndata['width'] = graph.ndata['width'].unsqueeze(1)
         graph.ndata['feat_module'] = graph.ndata['ntype_module']
         graph.ndata['feat_gate'] = graph.ndata['ntype_gate']
         graph_info['POs_feat'] = graph_info['POs_level_max'].unsqueeze(-1)
