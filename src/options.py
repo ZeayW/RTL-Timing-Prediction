@@ -8,6 +8,7 @@ def get_options(args=None):
     parser.add_argument('--flag_delay_m', action='store_true')
     parser.add_argument('--flag_delay_g', action='store_true')
     parser.add_argument('--flag_delay_pi', action='store_true')
+    parser.add_argument('--flag_delay_pd', action='store_true')
     parser.add_argument('--flag_ntype_g', action='store_true')
     parser.add_argument('--flag_path_supervise', action='store_true')
     parser.add_argument('--pretrain_dir', type=str)

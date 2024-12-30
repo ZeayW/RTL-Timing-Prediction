@@ -115,6 +115,7 @@ def init_model(options):
             infeat_dim2=num_module_types,
             hidden_dim=options.hidden_dim,
             flag_width=options.flag_width,
+            flag_delay_pd=options.flag_delay_pd,
             flag_delay_m=options.flag_delay_m,
             flag_delay_g=options.flag_delay_g,
             flag_delay_pi=options.flag_delay_pi,
