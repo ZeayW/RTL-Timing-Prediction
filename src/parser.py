@@ -296,15 +296,15 @@ class Parser:
                     # set the node information for the fanout nodes
                     fanout_nodes = io_nodes['o']
                     fanout_nodes.reverse()
-                    if gate_type in ['decoder','encoder'] and len(io_nodes['i'])>=32:
-                        gate_type = 'input'
-                        for n in fanout_nodes:
-                            if self.nodes.get(n, None) is None and 'open' in n:
-                                self.nodes[n] = {'ntype': gate_type, 'is_po': False, 'is_module': 0}
-                            else:
-                                self.nodes[n]['ntype'] = gate_type
-                                self.nodes[n]['is_module'] = 0
-                        continue
+                    # if gate_type in ['decoder','encoder'] and len(io_nodes['i'])>=32:
+                    #     gate_type = 'input'
+                    #     for n in fanout_nodes:
+                    #         if self.nodes.get(n, None) is None and 'open' in n:
+                    #             self.nodes[n] = {'ntype': gate_type, 'is_po': False, 'is_module': 0}
+                    #         else:
+                    #             self.nodes[n]['ntype'] = gate_type
+                    #             self.nodes[n]['is_module'] = 0
+                    #     continue
 
                     for n in fanout_nodes:
                         if self.nodes.get(n, None) is None and 'open' in n:

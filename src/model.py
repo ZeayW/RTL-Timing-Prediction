@@ -38,6 +38,7 @@ class TimeConv(nn.Module):
                  agg_choice=0,
                  attn_choice=1,
                  flag_width=False,
+                 flag_delay_pd=False,
                  flag_delay_m=False,
                  flag_delay_g=False,
                  flag_delay_pi=False,
@@ -56,6 +57,7 @@ class TimeConv(nn.Module):
         self.flag_delay_m = flag_delay_m
         self.flag_delay_g = flag_delay_g
         self.flag_delay_pi = flag_delay_pi
+        self.flag_delay_pd = flag_delay_pd
         self.flag_ntype_g = flag_ntype_g
         self.pi_choice = pi_choice
         self.flag_train = flag_train
@@ -94,6 +96,9 @@ class TimeConv(nn.Module):
                 if self.flag_delay_pi:
                     feat_self_g_dim += 1
                     feat_self_m_dim += 1
+                if self.flag_delay_pd:
+                    feat_self_g_dim += 1
+                    feat_self_m_dim += 1
                 self.mlp_self_gate = MLP(feat_self_g_dim, int(hidden_dim / 2), hidden_dim)
                 self.mlp_self_module = MLP(feat_self_m_dim, int(hidden_dim / 2), hidden_dim)
         if flag_homo:
@@ -106,6 +111,9 @@ class TimeConv(nn.Module):
                 neigh_dim_m = hidden_dim
                 neigh_dim_g = hidden_dim
             if self.flag_delay_pi:
+                neigh_dim_m += 1
+                neigh_dim_g += 1
+            if self.flag_delay_pd:
                 neigh_dim_m += 1
                 neigh_dim_g += 1
             self.mlp_neigh_module = MLP(neigh_dim_m, int(hidden_dim / 2), hidden_dim)
@@ -131,6 +139,7 @@ class TimeConv(nn.Module):
             if self.flag_ntype_g:
                 atnn_dim_g += hidden_dim_attn
                 self.mlp_type_g = MLP(self.infeat_dim1, hidden_dim_attn, hidden_dim_attn)
+
             self.attention_vector_g = nn.Parameter(th.randn(atnn_dim_g, 1), requires_grad=True)
             self.attention_vector_m = nn.Parameter(th.randn(atnn_dim_m,1),requires_grad=True)
         # if flag_reverse:
@@ -159,7 +168,7 @@ class TimeConv(nn.Module):
     def nodes_func_module(self,nodes):
 
         mask = nodes.data['is_po'].squeeze() != 1
-        m_self = th.cat((nodes.data['width'], nodes.data[self.feat_name2]), dim=1)
+        m_self = th.cat((nodes.data['pos'], nodes.data[self.feat_name2]), dim=1)
 
         # print(th.sum(th.abs(nodes.data['width']-nodes.data['pos'])))
         # # exit()
@@ -182,6 +191,7 @@ class TimeConv(nn.Module):
 
         mask = nodes.data['is_po'].squeeze() != 1
         m_self = nodes.data[self.feat_name1]
+
         if self.flag_delay_pi:
             m_self = th.cat((m_self,nodes.data['input_delay']),dim=1)
         if self.agg_choice ==0:
@@ -224,9 +234,10 @@ class TimeConv(nn.Module):
     def message_func_module(self,edges):
         #m = th.cat((edges.src['h'], edges.data['bit_position'].unsqueeze(1)), dim=1)
         m = edges.src['h']
-        max_pos = th.max(edges.data['bit_position'])
 
         #pos = edges.data['bit_position'].unsqueeze(1)
+        if self.flag_delay_pd:
+            m = th.cat((m,self.mlp_out(m)),dim=1)
         return {'m':m,'pos':edges.data['bit_position'],'attn_e':edges.data['attn_e']}
 
 
@@ -290,7 +301,8 @@ class TimeConv(nn.Module):
 
     def message_func_gate(self,edges):
         m = edges.src['h']
-
+        if self.flag_delay_pd:
+            m = th.cat((m,self.mlp_out(m)),dim=1)
         return {'m':m,'attn_e':edges.data['attn_e']}
 
     def reduce_func_smoothmax(self, nodes):

@@ -72,9 +72,9 @@ def load_data(usage):
         graph.ndata['feat'] = graph.ndata['ntype'][:,3:]
 
         # print(th.sum(graph.ndata['value'][:,0])+th.sum(graph.ndata['value'][:,1])+th.sum(graph.ndata['is_pi'])+th.sum(graph.ndata['feat']),th.sum(graph.ndata['ntype']))
-        #graph.ndata['width'] = graph.ndata['width'].unsqueeze(1)
+        graph.ndata['width'] = graph.ndata['width'].unsqueeze(1)
         graph.ndata['feat_module'] = graph.ndata['ntype_module']
-        graph.ndata['feat_gate'] = graph.ndata['ntype_gate']
+        graph.ndata['feat_gate'] = graph.ndata['ntype_gate'][:,3:]
         graph_info['POs_feat'] = graph_info['POs_level_max'].unsqueeze(-1)
         graph.ndata['h'] = th.ones((graph.number_of_nodes(), options.hidden_dim), dtype=th.float)
         graph.ndata['PO_feat'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
@@ -99,7 +99,7 @@ def load_data(usage):
 
     batch_size = options.batch_size
     if usage=='test':
-        batch_size = batch_size*4
+        batch_size = len(loaded_data)
     drop_last = True if usage == 'train' else False
     drop_last = False
 
