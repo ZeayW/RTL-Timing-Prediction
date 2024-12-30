@@ -497,11 +497,13 @@ if __name__ == "__main__":
             pass
         with tee.StdoutTee(stdout_f), tee.StderrTee(stderr_f):
             model = init_model(options)
-            if options.pretrain_dir is not None:
-                model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
+            # if options.pretrain_dir is not None:
+            #     model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
             if options.flag_reverse:
                 if options.pi_choice == 0: model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
                 model.mlp_out_new =  MLP(options.out_dim,options.hidden_dim,1)
+            if options.pretrain_dir is not None:
+                model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
             model = model.to(device)
 
             print('seed:', seed)

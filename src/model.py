@@ -105,40 +105,40 @@ class TimeConv(nn.Module):
             self.mlp_neigh = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
         else:
             if self.agg_choice==0:
-                neigh_dim_m = hidden_dim + self.infeat_dim2 + 1
-                neigh_dim_g = hidden_dim + self.infeat_dim1
+                neigh_dim_m = 1 + self.infeat_dim2 + 1
+                neigh_dim_g = 1 + self.infeat_dim1
             else:
-                neigh_dim_m = hidden_dim
-                neigh_dim_g = hidden_dim
+                neigh_dim_m = 1
+                neigh_dim_g = 1
             if self.flag_delay_pi:
                 neigh_dim_m += 1
                 neigh_dim_g += 1
             if self.flag_delay_pd:
                 neigh_dim_m += 1
                 neigh_dim_g += 1
-            self.mlp_neigh_module = MLP(neigh_dim_m, int(hidden_dim / 2), hidden_dim)
-            self.mlp_neigh_gate = MLP(neigh_dim_g, int(hidden_dim / 2), hidden_dim)
+            self.mlp_neigh_module = MLP(neigh_dim_m, int(hidden_dim / 2), hidden_dim,1)
+            self.mlp_neigh_gate = MLP(neigh_dim_g, int(hidden_dim / 2), hidden_dim,1)
         if flag_global:
             self.mlp_global = MLP(1, int(hidden_dim / 2), hidden_dim)
             out_dim = hidden_dim * 2
         if flag_attn:
             hidden_dim_attn = int(hidden_dim/8)
-            atnn_dim_m = hidden_dim + hidden_dim_attn *2
-            atnn_dim_g = hidden_dim
-            self.mlp_type = MLP(self.infeat_dim2, hidden_dim_attn, hidden_dim_attn)
+            atnn_dim_m = 3
+            atnn_dim_g = 1
+            self.mlp_type = MLP(self.infeat_dim2, hidden_dim_attn, hidden_dim_attn,1)
             if self.flag_width:
-                self.mlp_pos = MLP(2, hidden_dim_attn, hidden_dim_attn)
+                self.mlp_pos = MLP(2, hidden_dim_attn, hidden_dim_attn,1)
             else:
-                self.mlp_pos = MLP(1, hidden_dim_attn, hidden_dim_attn)
+                self.mlp_pos = MLP(1, hidden_dim_attn, hidden_dim_attn,1)
             if self.flag_delay_m:
-                atnn_dim_m += hidden_dim_attn
-                self.mlp_level_m = MLP(2, hidden_dim_attn, hidden_dim_attn)
+                atnn_dim_m += 1
+                self.mlp_level_m = MLP(2, hidden_dim_attn, hidden_dim_attn,1)
             if self.flag_delay_g:
-                atnn_dim_g += hidden_dim_attn
-                self.mlp_level = MLP(2, hidden_dim_attn, hidden_dim_attn)
+                atnn_dim_g += 1
+                self.mlp_level = MLP(2, hidden_dim_attn, hidden_dim_attn,1)
             if self.flag_ntype_g:
-                atnn_dim_g += hidden_dim_attn
-                self.mlp_type_g = MLP(self.infeat_dim1, hidden_dim_attn, hidden_dim_attn)
+                atnn_dim_g += 1
+                self.mlp_type_g = MLP(self.infeat_dim1, hidden_dim_attn, hidden_dim_attn,1)
 
             self.attention_vector_g = nn.Parameter(th.randn(atnn_dim_g, 1), requires_grad=True)
             self.attention_vector_m = nn.Parameter(th.randn(atnn_dim_m,1),requires_grad=True)
@@ -161,7 +161,7 @@ class TimeConv(nn.Module):
             h = self.mlp_neigh(nodes.data['neigh']) + self.mlp_self(nodes.data[self.feat_name1])
         # apply activation except the POs
         mask = nodes.data['is_po'].squeeze() != 1
-        h[mask] = self.activation(h[mask])
+        #h[mask] = self.activation(h[mask])
 
         return {'h':h}
 
@@ -180,7 +180,7 @@ class TimeConv(nn.Module):
         else:
             h = self.mlp_neigh_module(nodes.data['neigh']) + self.mlp_self_module(m_self)
 
-        h[mask] = self.activation(h[mask])
+        #h[mask] = self.activation(h[mask])
 
         if self.flag_reverse:
             return {'h':h,'attn_sum':nodes.data['attn_sum'],'attn_max': nodes.data['attn_max']}
@@ -199,7 +199,7 @@ class TimeConv(nn.Module):
             h = self.mlp_neigh_gate(h)
         else:
             h = self.mlp_neigh_gate(nodes.data['neigh']) + self.mlp_self_gate(m_self)
-        h[mask] = self.activation(h[mask])
+        #h[mask] = self.activation(h[mask])
         if self.flag_reverse and self.attn_choice == 1:
             return {'h': h, 'exp_src_sum': nodes.data['exp_src_sum'], 'exp_src_max': nodes.data['exp_src_max']}
         elif self.flag_reverse and self.attn_choice == 0:
@@ -476,7 +476,8 @@ class TimeConv(nn.Module):
             else:
                 h = h_gnn
 
-            rst = self.mlp_out(h)
+            rst=h
+            #rst = self.mlp_out(h)
 
             if not self.flag_train and self.flag_path_supervise:
                 return rst,0
