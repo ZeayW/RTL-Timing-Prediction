@@ -617,7 +617,7 @@ class Parser:
             nid = POs_nid[i]
             PO_name = POs_name[i]
             PO_label = self.po_labels[PO_name]
-            if PO_label==0 and level>=2:
+            if (PO_label==0 and level>=2) or (PO_label==1 and level>=5) or (PO_label==2 and level>=10):
                 print('\t removing PO:',PO_name,PO_label,level)
                 graph.ndata['is_po'][nid] = 0
             else:
@@ -625,6 +625,7 @@ class Parser:
         POs_level = filter_list(POs_level,remain_pos_idx)
         POs_name = filter_list(POs_name, remain_pos_idx)
         POs_nid = filter_list(POs_nid, remain_pos_idx)
+
 
 
         #print(graph.edges(etype='intra_module'))
