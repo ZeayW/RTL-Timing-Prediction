@@ -149,6 +149,7 @@ class TimeConv(nn.Module):
 
         self.mlp_out = MLP(out_dim,hidden_dim,1)
         self.activation = nn.ReLU()
+        self.activation2 = th.nn.LeakyReLU(negative_slope=0)
 
         # initialize the parameters
         # self.reset_parameters()
@@ -228,7 +229,7 @@ class TimeConv(nn.Module):
             z = th.cat((edges.src['h'], m_pos, m_type), dim=1)
 
         e = th.matmul(z, self.attention_vector_m)
-
+        #e = self.activation2(e)
         return {'attn_e': e}
 
     def message_func_module(self,edges):
@@ -292,6 +293,7 @@ class TimeConv(nn.Module):
             m_type = self.mlp_type_g(edges.dst[self.feat_name2])
             z = th.cat((z, m_type), dim=1)
         e = th.matmul(z, self.attention_vector_g)
+        #e = self.activation2(e)
         return {'attn_e': e}
 
     def edge_msg_gate_weight(self,edges):
@@ -491,7 +493,7 @@ class TimeConv(nn.Module):
             rst = self.mlp_out(h)
 
             if not self.flag_train and self.flag_path_supervise:
-                return rst,0
+                return rst,0,None
 
 
             if self.flag_reverse:
@@ -528,24 +530,24 @@ class TimeConv(nn.Module):
                     nodes_list = th.tensor(range(graph.number_of_nodes())).to(device)
 
                     #POs = POs.detach().cpu().numpy().tolist()
-                    POs_name = [graph_info['nodes_name'][n] for n in POs]
-                    POname2idx = {n:i for i,n in enumerate(POs_name)}
+                    # POs_name = [graph_info['nodes_name'][n] for n in POs]
+                    # POname2idx = {n:i for i,n in enumerate(POs_name)}
 
-                    cur_PIs_dst = PIs_dst[POname2idx['do_10[2]']]
-                    mask = cur_PIs_dst>=0
-                    cur_Pis_delay = nodes_delay[PIs_mask][mask].detach().cpu().numpy().tolist()
-                    cur_PIs_dst = cur_PIs_dst[mask].detach().cpu().numpy().tolist()
-                    cur_PIs_prob = PIs_prob[POname2idx['do_10[2]']][mask].detach().cpu().numpy().tolist()
-                    cur_PIs_prob = [round(v, 3) for v in cur_PIs_prob]
-                    PIs_idx = nodes_list[PIs_mask][mask]
-                    PIs_name = [graph_info['nodes_name'][n] for n in PIs_idx]
-                    critical_PIs = graph.in_edges(POs[POname2idx['do_10[2]']],etype='pi2po')[0].detach().cpu().numpy().tolist()
-                    critical_PIs_name = [graph_info['nodes_name'][n] for n in critical_PIs]
-                    print(critical_PIs_name)
+                    #cur_PIs_dst = PIs_dst[POname2idx['do_10[2]']]
+                    #mask = cur_PIs_dst>=0
+                    # cur_Pis_delay = nodes_delay[PIs_mask][mask].detach().cpu().numpy().tolist()
+                    # cur_PIs_dst = cur_PIs_dst[mask].detach().cpu().numpy().tolist()
+                    # cur_PIs_prob = PIs_prob[POname2idx['do_10[2]']][mask].detach().cpu().numpy().tolist()
+                    # cur_PIs_prob = [round(v, 3) for v in cur_PIs_prob]
+                    # PIs_idx = nodes_list[PIs_mask][mask]
+                    # PIs_name = [graph_info['nodes_name'][n] for n in PIs_idx]
+                    # critical_PIs = graph.in_edges(POs[POname2idx['do_10[2]']],etype='pi2po')[0].detach().cpu().numpy().tolist()
+                    # critical_PIs_name = [graph_info['nodes_name'][n] for n in critical_PIs]
+                    #print(critical_PIs_name)
                     #exit()
                     #cur_PIs_dst = [round(v, 3) for v in cur_PIs_dst]
 
-                    print(list(zip(PIs_name,cur_Pis_delay,cur_PIs_dst,cur_PIs_prob)))
+                    #print(list(zip(PIs_name,cur_Pis_delay,cur_PIs_dst,cur_PIs_prob)))
 
 
                     # print([get_nodename(graph_info['nodes_name'],po) for po in POs])
@@ -575,7 +577,8 @@ class TimeConv(nn.Module):
                         print(len(graph.ndata['loss'][POs][th.isnan(graph.ndata['loss'][POs])]))
                         # print(graph.ndata['loss'][POs])
 
-                    return rst, path_loss,POs_delay_d,POs_delay_p,POs_delay_m,POs_delay_w,POs_criticalprob
+                    return rst, path_loss,POs_criticalprob
+                    #return rst, path_loss,POs_delay_d,POs_delay_p,POs_delay_m,POs_delay_w,POs_criticalprob
 
 
 
@@ -660,7 +663,7 @@ class TimeConv(nn.Module):
             #print('g',num_gate,th.sum(graph.edges['intra_gate'].data['weight']))
             #print('m',num_module,th.sum(graph.edges['intra_module'].data['weight']))
 
-            return rst,0
+            return rst,0,None
 
 class GraphBackProp(nn.Module):
 
