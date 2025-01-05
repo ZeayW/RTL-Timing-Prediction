@@ -160,226 +160,7 @@ def init(seed):
     np.random.seed(seed)
     random.seed(seed)
 
-def inference(model,test_data):
-
-    #model.flag_train = False
-    with (th.no_grad()):
-        total_num, total_loss, total_r2 = 0, 0.0, 0
-        labels,labels_hat = None,None
-        POs_delay_m,POs_delay_d,POs_delay_p,POs_delay_w,labels_margin = None,None,None,None,None
-        temp_labels, temp_labels_hat = None, None
-        POs_topo = None
-        
-        for data in test_data:
-            num_cases = 100
-            graph = data['graph']
-            num_cases = min(num_cases, len(data['delay-label_pairs']))
-        
-            graph = graph.to(device)
-            graphs_info = data
-            topo_levels = gen_topo(graph)
-            graphs_info['is_heter'] = is_heter(graph)
-            graphs_info['topo'] = [l.to(device) for l in topo_levels]
-            graphs_info['POs_mask'] = (graph.ndata['is_po'] == 1).squeeze(-1).to(device)
-            POs_topolevel = graph.ndata['PO_feat'][graph.ndata['is_po'] == 1].to(device)
-            graphs_info['POs_feat'] = POs_topolevel
-            if options.flag_reverse:
-                topo_r = gen_topo(graph, flag_reverse=True)
-                graphs_info['topo_r'] = [l.to(device) for l in topo_r]
-                nodes_list = th.tensor(range(graph.number_of_nodes())).to(device)
-                POs = nodes_list[graph.ndata['is_po'] == 1]
-                graphs_info['POs'] = POs.detach().cpu().numpy().tolist()
-                graph.ndata['hd'] = -1000*th.ones((graph.number_of_nodes(), len(POs)), dtype=th.float).to(device)
-                graph.ndata['hp'] = th.zeros((graph.number_of_nodes(), len(POs)), dtype=th.float).to(device)
-                for i, po in enumerate(POs):
-                    graph.ndata['hp'][po][i] = 1
-                    graph.ndata['hd'][po][i] = 0
-
-
-            # print(data['design_name'])
-            for i in range(num_cases):
-                if options.target_residual:
-                    PIs_delay, POs_baselabel, POs_label, pi2po_edges = data['delay-label_pairs'][i][:4]
-                else:
-                    PIs_delay, POs_label, POs_baselabel, pi2po_edges = data['delay-label_pairs'][i][:4]
-
-                if options.flag_path_supervise:
-                    # new_edges_feat = {'prob': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1)}
-                    graph.add_edges(th.tensor(pi2po_edges[0]).to(device), th.tensor(pi2po_edges[1]).to(device),
-                                    etype='pi2po')
-
-                po_labels = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-                po_labels[graph.ndata['is_po'] == 1] = th.tensor(POs_label, dtype=th.float).unsqueeze(-1)
-                po_labels_margin = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-                po_labels_margin[graph.ndata['is_po'] == 1] = th.tensor(POs_baselabel, dtype=th.float).unsqueeze(-1)
-
-                pi_delays = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-                pi_delays[graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay, dtype=th.float).unsqueeze(1)
-
-                graph.ndata['label'] = po_labels.to(device)
-                graph.ndata['delay'] = pi_delays.to(device)
-                graph.ndata['input_delay'] = pi_delays.to(device)
-
-                cur_labels = graph.ndata['label'][graphs_info['POs_mask']].to(device)
-                cur_labels_margin =  po_labels_margin.to(device)[graphs_info['POs_mask']].to(device)
-                cur_labels_hat, path_loss,cur_POs_delay_d,cur_POs_delay_p,cur_POs_delay_m,cur_POs_delay_w,cur_POs_criticalprob = model(graph, graphs_info)
-
-                if options.flag_path_supervise:
-                    graph.remove_edges(graph.edges('all', etype='pi2po')[2], etype='pi2po')
-
-                #exit()
-
-                #(cur_labels[(graphs_info['POs_feat']-cur_labels) > 10])
-                # cur_r2 = R2_score(cur_labels_hat, cur_labels).item()
-                # cur_mape = th.mean(th.abs(cur_labels_hat[cur_labels != 0] - cur_labels[cur_labels != 0]) / cur_labels[cur_labels != 0])
-                #print(graphs_info['design_name'])
-                #print(i,"R2={:.2f} mape={:.3f}".format(cur_r2,cur_mape))
-                #exit()
-                if labels_hat is None:
-                    labels_hat = cur_labels_hat
-                    labels = cur_labels
-                    POs_delay_m = cur_POs_delay_m
-                    POs_delay_d = cur_POs_delay_d
-                    POs_delay_p = cur_POs_delay_p
-                    POs_delay_w = cur_POs_delay_w
-                    labels_margin = cur_labels_margin
-                    POs_topo = POs_topolevel
-                else:
-                    labels_hat = th.cat((labels_hat, cur_labels_hat), dim=0)
-                    labels = th.cat((labels, cur_labels), dim=0)
-                    POs_delay_m = th.cat((POs_delay_m,cur_POs_delay_m),dim=0)
-                    POs_delay_d = th.cat((POs_delay_d,cur_POs_delay_d),dim=0)
-                    POs_delay_p = th.cat((POs_delay_p, cur_POs_delay_p), dim=0)
-                    POs_delay_w = th.cat((POs_delay_w, cur_POs_delay_w), dim=0)
-                    labels_margin = th.cat((labels_margin,cur_labels_margin),dim=0)
-                    POs_topo = th.cat((POs_topo, POs_topolevel), dim=0)
-
-
-                mask_low = cur_POs_criticalprob.squeeze(1) <= 0.05
-                POs_low = nodes_list[graph.ndata['is_po'] == 1][mask_low]
-                POs_low = POs_low.detach().cpu().numpy().tolist()
-                POs_low_name = [data['nodes_name'][n] for n in POs_low]
-                lb = (cur_labels-cur_labels_margin)[mask_low].squeeze(1).detach().cpu().tolist()
-                lm = cur_labels_margin[mask_low].squeeze(1).detach().cpu().tolist()
-                err = [[round(v[0],2)] for v in th.abs(cur_labels-cur_labels_hat)[mask_low].detach().cpu().tolist()]
-                dd = cur_POs_delay_d[mask_low].squeeze(1).detach().cpu().tolist()
-                dp = cur_POs_delay_p[mask_low].squeeze(1).detach().cpu().tolist()
-                dm = [round(v,2) for v in cur_POs_delay_m[mask_low].squeeze(1).detach().cpu().tolist()]
-                dw = [round(v, 2) for v in cur_POs_delay_w[mask_low].squeeze(1).detach().cpu().tolist()]
-                prob = [round(v,3) for v in cur_POs_criticalprob[mask_low].squeeze(1).detach().cpu().tolist()]
-
-                print(data['design_name'],i)
-                print('\t',list(zip(POs_low_name,prob)))
-                print(path_loss.item())
-
-                # nodes_list = th.tensor(range(graph.number_of_nodes())).to(device)
-                # mask_low = cur_POs_delay_w.squeeze(1)<=0.05
-                # POs_low = nodes_list[graph.ndata['is_po'] == 1][mask_low]
-                # POs_low = POs_low.detach().cpu().numpy().tolist()
-                # POs_low_name = [data['nodes_name'][n] for n in POs_low ]
-                # print(data['design_name'],i,POs_low_name)
-
-                # if temp_labels_hat is None:
-                #     temp_labels_hat = cur_labels_hat
-                #     temp_labels = cur_labels
-                # else:
-                #     temp_labels_hat = th.cat((temp_labels_hat, cur_labels_hat), dim=0)
-                #     temp_labels = th.cat((temp_labels, cur_labels), dim=0)
-
-            # temp_r2 = R2_score(temp_labels_hat, temp_labels).item()
-            # temp_mape = th.mean(th.abs(temp_labels_hat[temp_labels != 0] - temp_labels[temp_labels != 0]) / temp_labels[temp_labels != 0])
-            # temp_ratio = temp_labels_hat[temp_labels != 0] / temp_labels[temp_labels != 0]
-            # min_ratio = th.min(temp_ratio)
-            # max_ratio = th.max(temp_ratio)
-            #print('\t{}: \tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(data['design_name'],temp_r2,temp_mape,min_ratio,max_ratio))
-
-            exit()
-
-
-        test_loss = Loss(labels_hat, labels).item()
-
-        test_r2 = R2_score(labels_hat, labels).item()
-        test_mape = th.mean(th.abs(labels_hat[labels != 0] - labels[labels != 0]) / labels[labels != 0])
-        ratio = labels_hat[labels != 0] / labels[labels != 0]
-        min_ratio = th.min(ratio)
-        max_ratio = th.max(ratio)
-
-        mask1 = POs_delay_w.squeeze(1)<=0.05
-        mask2 = POs_delay_w.squeeze(1)>0.5
-        mask_l = labels.squeeze(1) != 0
-
-        print(len(labels[mask1])/len(labels),len(labels[mask2])/len(labels))
-        temp_r2  = R2_score(labels_hat[mask1], labels[mask1]).item()
-        temp_mape = th.mean(th.abs(labels_hat[th.logical_and(mask1, mask_l)] - labels[th.logical_and(mask1, mask_l)]) / labels[th.logical_and(mask1, mask_l)])
-        print(temp_r2,temp_mape)
-        temp_r2 = R2_score(labels_hat[mask2], labels[mask2]).item()
-        temp_mape = th.mean(
-            th.abs(labels_hat[th.logical_and(mask2, mask_l)] - labels[th.logical_and(mask2, mask_l)]) /
-            labels[th.logical_and(mask2, mask_l)])
-        print(temp_r2, temp_mape)
-
-
-        abnormal_mask = th.logical_or(ratio>=2,ratio<=0.5)
-        # print(list(zip(labels[labels!=0][abnormal_mask].detach().cpu().numpy().tolist(),labels_hat[labels!=0][abnormal_mask].detach().cpu().numpy().tolist())))
-        # print(th.mean(th.abs(POs_delay_d[labels != 0] - labels_margin[labels != 0]) / labels[labels != 0]))
-        # print(th.mean(th.abs(POs_delay_d - labels_margin)))
-        # print(th.mean(th.abs(POs_delay_p[labels != 0] - labels_margin[labels != 0]) / labels[
-        #     labels != 0]))
-        # print(th.mean(th.abs(POs_delay_p - labels_margin)))
-        # print(th.mean(th.abs(POs_delay_m[labels != 0] - labels_margin[labels != 0]) / labels[
-        #     labels != 0]))
-        # print(th.mean(th.abs(POs_delay_m - labels_margin)))
-        # print(th.mean(th.abs(POs_delay_w[labels != 0] - labels_margin[labels != 0]) / labels[
-        #     labels != 0]))
-        # print(th.mean(th.abs(POs_delay_w - labels_margin)))
-
-
-        x = []
-        y = []
-        indexs = list(range(9,40))
-        for i,r in enumerate(indexs):
-            r = r / 20
-            if i==0:
-                num = len(ratio[ratio<r+0.05])
-            elif i== len(indexs)-1:
-                num = len(ratio[ratio >= r])
-            else:
-                num = len(ratio[th.logical_and(ratio>=r,ratio<r+0.05)])
-            x.append(r)
-            y.append(num/len(ratio))
-        #plt.bar(x,y)
-        plt.xlabel('ratio')
-        plt.ylabel('percent')
-        plt.bar(x,y,width=0.03)
-        #print(list(zip(x,y)))
-        plt.savefig('bar2.png')
-        plt.close()
-
-        max_label = max(th.max(labels_hat).item(),th.max(labels).item())
-        plt.xlim(0, max_label)  # 设定绘图范围
-        plt.ylim(0, max_label)
-        plt.xlabel('predict')
-        plt.ylabel('label')
-        plt.scatter(labels_hat.detach().cpu().numpy().tolist(),labels.detach().cpu().numpy().tolist(),s=0.2)
-        plt.savefig('scatter2.png')
-        plt.close()
-
-        max_v = max(th.max(labels_margin).item(), th.max(POs_delay_m).item())
-        plt.xlim(0, max_v)  # 设定绘图范围
-        plt.ylim(0, max_v)
-        plt.xlabel('PI delay')
-        plt.ylabel('label margin')
-        plt.scatter(POs_delay_m.detach().cpu().numpy().tolist(), labels_margin.detach().cpu().numpy().tolist(), s=0.2)
-        plt.savefig('scatter_dl.png')
-        plt.close()
-
-
-        return test_loss, test_r2,test_mape,min_ratio,max_ratio
-
-
-        
-
-def test(model,test_data,test_idx_loader,flag_test=False,prob_file='',labels_file=''):
+def inference(model,test_data,test_idx_loader,flag_test=False,prob_file='',labels_file=''):
 
     #model.flag_train = False
     with (th.no_grad()):
@@ -562,6 +343,95 @@ def test(model,test_data,test_idx_loader,flag_test=False,prob_file='',labels_fil
         return test_loss, test_r2,test_mape,min_ratio,max_ratio
     #model.flag_train = True
 
+def test(model,test_data,test_idx_loader):
+
+    model.flag_train = False
+    with (th.no_grad()):
+        total_num, total_loss, total_r2 = 0, 0.0, 0
+        labels,labels_hat = None,None
+
+        batch_size = test_idx_loader.batch_size
+        for i in range(0,len(test_data),batch_size):
+            idxs = list(range(i,min(i+batch_size,len(test_data))))
+        # for batch, idxs in enumerate(test_idx_loader):
+        #     idxs = idxs.numpy().tolist()
+            sampled_data = []
+            num_cases = 100
+            graphs = []
+            for idx in idxs:
+                data = test_data[idx]
+                num_cases = min(num_cases,len(data['delay-label_pairs']))
+                sampled_data.append(test_data[idx])
+                graphs.append(data['graph'])
+
+            sampled_graphs = dgl.batch(graphs)
+            sampled_graphs = sampled_graphs.to(device)
+            graphs_info = {}
+            topo_levels = gen_topo(sampled_graphs)
+            graphs_info['is_heter'] = is_heter(sampled_graphs)
+            graphs_info['topo'] = [l.to(device) for l in topo_levels]
+            graphs_info['POs_mask'] = (sampled_graphs.ndata['is_po'] == 1).squeeze(-1).to(device)
+            POs_topolevel = sampled_graphs.ndata['PO_feat'][sampled_graphs.ndata['is_po'] == 1].to(device)
+            graphs_info['POs_feat'] = POs_topolevel
+            if options.flag_reverse and not options.flag_path_supervise:
+                topo_r = gen_topo(sampled_graphs, flag_reverse=True)
+                graphs_info['topo_r'] = [l.to(device) for l in topo_r]
+                nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
+                POs = nodes_list[sampled_graphs.ndata['is_po'] == 1]
+                graphs_info['POs'] = POs.detach().cpu().numpy().tolist()
+                sampled_graphs.ndata['hd'] = -1000*th.ones((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
+                sampled_graphs.ndata['hp'] = th.zeros((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
+                for i, po in enumerate(POs):
+                    sampled_graphs.ndata['hp'][po][i] = 1
+                    sampled_graphs.ndata['hd'][po][i] = 0
+
+            # num_cases = 2
+            # print(data['design_name'])
+            for i in range(num_cases):
+                # if num_cases==2 and i==0:
+                #     continue
+                po_labels,po_labels_margin, pi_delays = None,None,None
+                for data in sampled_data:
+                    if options.target_residual:
+                        PIs_delay,POs_baselabel, POs_label, pi2po_edges = data['delay-label_pairs'][i][:4]
+                    else:
+                        PIs_delay, POs_label, POs_baselabel,pi2po_edges  = data['delay-label_pairs'][i][:4]
+
+                    graph = data['graph']
+
+                    cur_po_labels =  th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
+                    cur_po_labels[graph.ndata['is_po'] == 1] = th.tensor(POs_label, dtype=th.float).unsqueeze(-1)
+                    # cur_po_labels_margin = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
+                    # cur_po_labels_margin[graph.ndata['is_po'] == 1] = th.tensor(POs_baselabel, dtype=th.float).unsqueeze(-1)
+                    cur_pi_delays = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
+                    cur_pi_delays[graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay, dtype=th.float).unsqueeze(1)
+
+                    po_labels = cat_tensor(po_labels,cur_po_labels)
+                    pi_delays = cat_tensor(pi_delays,cur_pi_delays)
+
+                sampled_graphs.ndata['label'] = po_labels.to(device)
+                sampled_graphs.ndata['delay'] = pi_delays.to(device)
+                sampled_graphs.ndata['input_delay'] = pi_delays.to(device)
+
+                cur_labels = sampled_graphs.ndata['label'][graphs_info['POs_mask']].to(device)
+
+                cur_labels_hat, path_loss,_ = model(sampled_graphs, graphs_info)
+
+                labels_hat = cat_tensor(labels_hat,cur_labels_hat)
+                labels = cat_tensor(labels,cur_labels)
+
+
+        test_loss = Loss(labels_hat, labels).item()
+
+        test_r2 = R2_score(labels_hat, labels).item()
+        test_mape = th.mean(th.abs(labels_hat[labels != 0] - labels[labels != 0]) / labels[labels != 0])
+        ratio = labels_hat[labels != 0] / labels[labels != 0]
+        min_ratio = th.min(ratio)
+        max_ratio = th.max(ratio)
+
+        return test_loss, test_r2,test_mape,min_ratio,max_ratio
+    model.flag_train = True
+
 def train(model):
     print(options)
     th.multiprocessing.set_sharing_strategy('file_system')
@@ -711,7 +581,9 @@ def train(model):
 
                 if options.flag_path_supervise:
                     #print(train_loss.item(),path_loss.item())
-                    train_loss += -path_loss
+                    #train_loss += -path_loss
+                    train_loss = th.exp(1-path_loss)*train_loss
+                    pass
 
                 train_r2 = R2_score(labels_hat, labels).to(device)
                 train_mape = th.mean(th.abs(labels_hat[labels!=0]-labels[labels!=0])/labels[labels!=0])
@@ -806,9 +678,8 @@ if __name__ == "__main__":
             # if options.pretrain_dir is not None:
             #     model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
 
-            if options.flag_reverse:
-                if True:
-                #if options.pi_choice == 0:
+            if options.flag_reverse and not options.flag_path_supervise:
+                if options.pi_choice == 0:
                     model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
                 model.mlp_out_new =  MLP(options.out_dim,options.hidden_dim,1)
             if options.pretrain_dir is not None:

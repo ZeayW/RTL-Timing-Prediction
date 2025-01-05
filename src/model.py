@@ -149,7 +149,8 @@ class TimeConv(nn.Module):
 
         self.mlp_out = MLP(out_dim,hidden_dim,1)
         self.activation = nn.ReLU()
-        self.activation2 = th.nn.LeakyReLU(negative_slope=0)
+        self.activation2 = th.nn.LeakyReLU(negative_slope=0.2)
+
 
         # initialize the parameters
         # self.reset_parameters()
@@ -229,7 +230,7 @@ class TimeConv(nn.Module):
             z = th.cat((edges.src['h'], m_pos, m_type), dim=1)
 
         e = th.matmul(z, self.attention_vector_m)
-        #e = self.activation2(e)
+        e = self.activation2(e)
         return {'attn_e': e}
 
     def message_func_module(self,edges):
@@ -293,7 +294,7 @@ class TimeConv(nn.Module):
             m_type = self.mlp_type_g(edges.dst[self.feat_name2])
             z = th.cat((z, m_type), dim=1)
         e = th.matmul(z, self.attention_vector_g)
-        #e = self.activation2(e)
+        e = self.activation2(e)
         return {'attn_e': e}
 
     def edge_msg_gate_weight(self,edges):
@@ -510,24 +511,24 @@ class TimeConv(nn.Module):
                     graph.ndata['id'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.int64).to(device)
                     graph.ndata['id'][POs] = th.tensor(range(len(POs)), dtype=th.int64).unsqueeze(-1).to(device)
                     graph.pull(POs, self.message_func_loss, fn.sum('ml', 'loss'), etype='pi2po')
+                    POs_criticalprob = None
+                    #graph.pull(POs, self.message_func_temp, fn.sum('mdw', 'delay_w'), etype='pi2po')
+                    #graph.pull(POs, fn.copy_src('delay','md'), fn.mean('md', 'di'), etype='pi2po')
 
-                    graph.pull(POs, self.message_func_temp, fn.sum('mdw', 'delay_w'), etype='pi2po')
-                    graph.pull(POs, fn.copy_src('delay','md'), fn.mean('md', 'di'), etype='pi2po')
-
-                    nodes_dst += graph.ndata['delay']
-                    PIs_mask = graph.ndata['is_pi'] == 1
-                    PIs_dst = th.transpose(nodes_dst[PIs_mask], 0, 1)
-                    POs_maxDst_idx = th.argmax(PIs_dst, dim=1)
-                    POs_delay_d = graph.ndata['delay'][POs_maxDst_idx]
-
-                    PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
-                    POs_maxProb_idx = th.argmax(PIs_prob, dim=1)
-                    POs_delay_p = graph.ndata['delay'][POs_maxProb_idx]
-                    POs_criticalprob = graph.ndata['delay_w'][POs]
-
-                    POs_delay_w = th.matmul(PIs_prob, graph.ndata['delay'][PIs_mask])
-
-                    nodes_list = th.tensor(range(graph.number_of_nodes())).to(device)
+                    # nodes_dst += graph.ndata['delay']
+                    # PIs_mask = graph.ndata['is_pi'] == 1
+                    # PIs_dst = th.transpose(nodes_dst[PIs_mask], 0, 1)
+                    # POs_maxDst_idx = th.argmax(PIs_dst, dim=1)
+                    # POs_delay_d = graph.ndata['delay'][POs_maxDst_idx]
+                    #
+                    # PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
+                    # POs_maxProb_idx = th.argmax(PIs_prob, dim=1)
+                    # POs_delay_p = graph.ndata['delay'][POs_maxProb_idx]
+                    # POs_criticalprob = graph.ndata['delay_w'][POs]
+                    #
+                    # POs_delay_w = th.matmul(PIs_prob, graph.ndata['delay'][PIs_mask])
+                    #
+                    # nodes_list = th.tensor(range(graph.number_of_nodes())).to(device)
 
                     #POs = POs.detach().cpu().numpy().tolist()
                     # POs_name = [graph_info['nodes_name'][n] for n in POs]
@@ -569,7 +570,7 @@ class TimeConv(nn.Module):
 
                     # exit()
                     path_loss = th.mean(graph.ndata['loss'][POs])
-                    POs_delay_m = graph.ndata['di'][POs]
+                    #POs_delay_m = graph.ndata['di'][POs]
 
                     if th.isnan(path_loss).any():
                         # print(nodes_prob)
