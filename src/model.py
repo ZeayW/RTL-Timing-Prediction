@@ -371,9 +371,9 @@ class TimeConv(nn.Module):
         pi_prob = th.gather(edges.src['hp'],dim=1,index=edges.dst['id'])
         return {'ml':pi_prob}
 
-    def message_func_temp(self, edges):
+    def message_func_prob(self, edges):
         msg = th.gather(edges.src['hp'], dim=1, index=edges.dst['id'])
-        return {'mdw': msg}
+        return {'mp': msg}
 
     def nodes_func_pi(self,nodes):
         #h = nodes.data['delay']
@@ -512,7 +512,9 @@ class TimeConv(nn.Module):
                     graph.ndata['id'][POs] = th.tensor(range(len(POs)), dtype=th.int64).unsqueeze(-1).to(device)
                     graph.pull(POs, self.message_func_loss, fn.sum('ml', 'loss'), etype='pi2po')
                     POs_criticalprob = None
-                    #graph.pull(POs, self.message_func_temp, fn.sum('mdw', 'delay_w'), etype='pi2po')
+
+
+                    graph.pull(POs, self.message_func_prob, fn.sum('mp', 'prob'), etype='pi2po')
                     #graph.pull(POs, fn.copy_src('delay','md'), fn.mean('md', 'di'), etype='pi2po')
 
                     # nodes_dst += graph.ndata['delay']
@@ -524,7 +526,7 @@ class TimeConv(nn.Module):
                     # PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
                     # POs_maxProb_idx = th.argmax(PIs_prob, dim=1)
                     # POs_delay_p = graph.ndata['delay'][POs_maxProb_idx]
-                    # POs_criticalprob = graph.ndata['delay_w'][POs]
+                    POs_criticalprob = graph.ndata['prob'][POs]
                     #
                     # POs_delay_w = th.matmul(PIs_prob, graph.ndata['delay'][PIs_mask])
                     #
