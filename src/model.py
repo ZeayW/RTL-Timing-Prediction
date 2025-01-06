@@ -512,11 +512,11 @@ class TimeConv(nn.Module):
                     graph.ndata['id'][POs] = th.tensor(range(len(POs)), dtype=th.int64).unsqueeze(-1).to(device)
                     graph.pull(POs, self.message_func_loss, fn.sum('ml', 'loss'), etype='pi2po')
                     POs_criticalprob = None
-
-
                     graph.pull(POs, self.message_func_prob, fn.sum('mp', 'prob'), etype='pi2po')
-                    #graph.pull(POs, fn.copy_src('delay','md'), fn.mean('md', 'di'), etype='pi2po')
+                    POs_criticalprob = graph.ndata['prob'][POs]
 
+                    # graph.pull(POs, fn.copy_src('delay','md'), fn.mean('md', 'di'), etype='pi2po')
+                    #
                     # nodes_dst += graph.ndata['delay']
                     # PIs_mask = graph.ndata['is_pi'] == 1
                     # PIs_dst = th.transpose(nodes_dst[PIs_mask], 0, 1)
@@ -526,32 +526,70 @@ class TimeConv(nn.Module):
                     # PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
                     # POs_maxProb_idx = th.argmax(PIs_prob, dim=1)
                     # POs_delay_p = graph.ndata['delay'][POs_maxProb_idx]
-                    POs_criticalprob = graph.ndata['prob'][POs]
+                    #
+                    # POs_name = [graph_info['nodes_name'][n] for n in POs]
+                    # POname2idx = {n: i for i, n in enumerate(POs_name)}
+                    # cur_PIs_dst = PIs_dst[POname2idx['do_10[2]']]
+                    # mask = cur_PIs_dst >= 0
+                    # nodes_list = th.tensor(range(graph.number_of_nodes())).to(device)
+                    # PIs_idx = nodes_list[PIs_mask][mask]
+                    # PIs_name = [graph_info['nodes_name'][n] for n in PIs_idx]
+                    # idxs = []
+                    # for j,pi in enumerate(PIs_name):
+                    #     if pi in ['di_13[0]']:
+                    #         idxs.append(j)
+                    # #print(idxs)
+                    # PIs_prob = PIs_prob[:,idxs]
+                    # for j, po in enumerate(POs):
+                    #     po_name = graph_info['nodes_name'][po]
+                    #     PI_prob = PIs_prob[j]
+                    #     print(po_name,PI_prob)
+                    #
+                    # reverse_eids = th.tensor(range(graph.number_of_edges(etype='reverse'))).to(device)
+                    #
+                    # noncritical_eids = reverse_eids[graph.edges['reverse'].data['weight'].squeeze(1)<0.1]
+                    #
+                    # #graph.remove_edges(noncritical_eids,etype='reverse')
+                    # for j, po in enumerate(POs):
+                    #     po_name = graph_info['nodes_name'][po]
+                    #     PI_prob = PIs_prob[j]
+                    #     if PI_prob.item()<0.5:
+                    #         continue
+                    #     print(po_name)
+                    #     cur_nid = po
+                    #     while True:
+                    #         preds = graph.successors(cur_nid,etype='reverse')
+                    #         print(len(preds))
+                    #         print([graph_info['nodes_name'][n] for n in preds.detach().cpu().numpy().tolist()])
+                    #         preds_prob = nodes_prob[preds]
+                    #         print(preds_prob)
+                    #         exit()
+                    #         if len(preds)==0:
+                    #             break
+                    #         #assert  len(cur_nid)==1, "{}".format(cur_nid)
+                    #         print('\t',graph_info['nodes_name'][cur_nid])
+                    # exit()
                     #
                     # POs_delay_w = th.matmul(PIs_prob, graph.ndata['delay'][PIs_mask])
                     #
-                    # nodes_list = th.tensor(range(graph.number_of_nodes())).to(device)
-
-                    #POs = POs.detach().cpu().numpy().tolist()
-                    # POs_name = [graph_info['nodes_name'][n] for n in POs]
-                    # POname2idx = {n:i for i,n in enumerate(POs_name)}
-
-                    #cur_PIs_dst = PIs_dst[POname2idx['do_10[2]']]
-                    #mask = cur_PIs_dst>=0
+                    # cur_PIs_dst = PIs_dst[POname2idx['do_10[2]']]
+                    # mask = cur_PIs_dst>=0
+                    # mask = cur_PIs_dst>-1000
                     # cur_Pis_delay = nodes_delay[PIs_mask][mask].detach().cpu().numpy().tolist()
                     # cur_PIs_dst = cur_PIs_dst[mask].detach().cpu().numpy().tolist()
                     # cur_PIs_prob = PIs_prob[POname2idx['do_10[2]']][mask].detach().cpu().numpy().tolist()
                     # cur_PIs_prob = [round(v, 3) for v in cur_PIs_prob]
                     # PIs_idx = nodes_list[PIs_mask][mask]
                     # PIs_name = [graph_info['nodes_name'][n] for n in PIs_idx]
+                    #
                     # critical_PIs = graph.in_edges(POs[POname2idx['do_10[2]']],etype='pi2po')[0].detach().cpu().numpy().tolist()
                     # critical_PIs_name = [graph_info['nodes_name'][n] for n in critical_PIs]
-                    #print(critical_PIs_name)
-                    #exit()
-                    #cur_PIs_dst = [round(v, 3) for v in cur_PIs_dst]
-
-                    #print(list(zip(PIs_name,cur_Pis_delay,cur_PIs_dst,cur_PIs_prob)))
-
+                    # print(critical_PIs_name)
+                    # #print(PIs_name[33:])
+                    # cur_PIs_dst = [round(v, 3) for v in cur_PIs_dst]
+                    #
+                    # #print(list(zip(PIs_name,cur_Pis_delay,cur_PIs_dst,cur_PIs_prob)))
+                    # exit()
 
                     # print([get_nodename(graph_info['nodes_name'],po) for po in POs])
                     # PIs_mask = graph.ndata['is_pi'] == 1

@@ -117,8 +117,8 @@ class Parser:
         self.pi_delay = {}
         self.po_labels = {}
         self.nicknames = {}
-        #self.buf_types = ['buf','not']
-        self.buf_types = ['buf']
+        self.buf_types = ['buf','not']
+        #self.buf_types = ['buf']
 
     def is_constant(self,node):
         if "1'b0" in node or self.nodes.get(node,{}).get('ntype')=="1'b0":
@@ -410,6 +410,7 @@ class Parser:
 
         # deal with the buffers/NOT gates
         #   record the input-output and output-input pair of buffer/NOT
+        is_buf ={}
         for fanout, (fanout_type,_, fanins) in self.fo2fi.items():
             gate_type = self.nodes[fanout]['ntype']
             if gate_type in self.buf_types:
@@ -417,6 +418,7 @@ class Parser:
                 fanin = fanins[0]
                 buf_o2i[fanout] = fanin
                 buf_i2o[fanin] = fanout
+                is_buf[fanout] = True
 
 
 
@@ -429,7 +431,8 @@ class Parser:
             src_list = []
 
             # add edges from fanin to fanout, consdiering replacement of buffer
-            if self.nodes[fanout]['ntype'] not in self.buf_types:
+            #if self.nodes[fanout]['ntype'] not in self.buf_types:
+            if not is_buf.get(fanout,False):
                 for fanin in fanins:
                     src = fanin
                     num_inv = 0
@@ -449,13 +452,12 @@ class Parser:
                     self.edges.append(
                         (src, dst, {'bit_position': bit_position,'is_inv':is_inv})
                     )
-
                     is_linked[src] = True
                     is_linked[dst] = True
 
             # deal with the special condition that the buf output is PO while buf input is PI
             else:
-                assert len(fanins) == 1
+                assert len(fanins) == 1, "{} {}".format(fanout,fanins)
                 src = fanins[0]
                 while buf_o2i.get(src, None) is not None:
                     src = buf_o2i[src]
@@ -474,7 +476,7 @@ class Parser:
             # recusively visit successors of fanout node until meet non-buffer node
             while buf_i2o.get(dst,None) is not None:
                 dst = buf_i2o[dst]
-                if self.nodes[dst]['ntype']:
+                if self.nodes[dst]['ntype']=='not':
                     num_inv += 1
             # check whether the last visited node is PO
             if self.nodes[dst]['is_po']:
@@ -617,6 +619,7 @@ class Parser:
             nid = POs_nid[i]
             PO_name = POs_name[i]
             PO_label = self.po_labels[PO_name]
+            #if (PO_label==0 and level>=2):
             if (PO_label==0 and level>=2) or (PO_label==1 and level>=5) or (PO_label==2 and level>=10):
                 print('\t removing PO:',PO_name,PO_label,level)
                 graph.ndata['is_po'][nid] = 0
@@ -625,7 +628,6 @@ class Parser:
         POs_level = filter_list(POs_level,remain_pos_idx)
         POs_name = filter_list(POs_name, remain_pos_idx)
         POs_nid = filter_list(POs_nid, remain_pos_idx)
-
 
 
         #print(graph.edges(etype='intra_module'))
@@ -745,7 +747,7 @@ def main():
                 continue
             # if int(design.split('_')[-1]) in [319,383,392]:
             #     continue
-            # if '00099' not in design:
+            # if '00251' not in design:
             #     continue
 
             design_dir = os.path.join(subdir_path,design)
