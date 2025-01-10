@@ -81,7 +81,10 @@ def load_data(usage,flag_inference=False):
 
         if options.flag_homo:
             graph = heter2homo(graph)
-
+        
+        if options.inv_choice!=-1:
+            graph.edges['intra_module'].data['is_inv'] = graph.edges['intra_module'].data['is_inv'].unsqueeze(1)
+            graph.edges['intra_gate'].data['is_inv'] = graph.edges['intra_gate'].data['is_inv'].unsqueeze(1)
         graph.ndata['feat'] = graph.ndata['ntype']
         graph.ndata['feat'] = graph.ndata['ntype'][:,3:]
 
@@ -131,6 +134,7 @@ def init_model(options):
             infeat_dim1=num_gate_types,
             infeat_dim2=num_module_types,
             hidden_dim=options.hidden_dim,
+            inv_choice= options.inv_choice,
             flag_width=options.flag_width,
             flag_delay_pd=options.flag_delay_pd,
             flag_delay_m=options.flag_delay_m,
@@ -160,7 +164,9 @@ def init(seed):
     np.random.seed(seed)
     random.seed(seed)
 
-def inference(model,test_data,test_idx_loader,prob_file='',labels_file=''):
+def inference(model,test_data,test_idx_loader,usage='test',prob_file='',labels_file=''):
+
+    new_dataset = []
 
     #model.flag_train = False
     with (th.no_grad()):
@@ -209,8 +215,10 @@ def inference(model,test_data,test_idx_loader,prob_file='',labels_file=''):
                     sampled_graphs.ndata['hp'][po][k] = 1
                     sampled_graphs.ndata['hd'][po][k] = 0
 
+            new_delay_label_pairs = []
+
             # num_cases = 2
-            # print(data['design_name'])
+            print(data['design_name'])
             for j in range(num_cases):
                 # if j!=10:
                 #     continue
@@ -224,6 +232,7 @@ def inference(model,test_data,test_idx_loader,prob_file='',labels_file=''):
                         PIs_delay,POs_baselabel, POs_label, pi2po_edges = data['delay-label_pairs'][j][:4]
                     else:
                         PIs_delay, POs_label, POs_baselabel,pi2po_edges  = data['delay-label_pairs'][j][:4]
+
 
                     graph = data['graph']
                     if options.flag_path_supervise:
@@ -263,6 +272,17 @@ def inference(model,test_data,test_idx_loader,prob_file='',labels_file=''):
                 labels = cat_tensor(labels,cur_labels)
                 POs_criticalprob = cat_tensor(POs_criticalprob,cur_POs_criticalprob)
 
+                abnormal_mask = (cur_POs_criticalprob.squeeze(1)<=0.05)
+                normal_mask = (cur_POs_criticalprob.squeeze(1) >0.5)
+                abnormal_POs = POs[abnormal_mask]
+                normal_POs = POs[normal_mask]
+                print('\t',j,len(POs),len(abnormal_POs),len(normal_POs),'\t',round(th.mean(cur_POs_criticalprob).item(),2))
+                #print(len(nodes_list),POs,abnormal_POs)
+                
+                #new_delay_label_pairs.append((PIs_delay, POs_label, POs_baselabel,pi2po_edges, abnormal_mask))
+                data['delay-label_pairs'][j] = (PIs_delay, POs_label, POs_baselabel,pi2po_edges, abnormal_POs,normal_POs)
+
+            new_dataset.append((graph,data))
                 #mask = cur_POs_criticalprob.squeeze(1) <= 0.05
                 #nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
                 #POs = nodes_list[sampled_graphs.ndata['is_po']==1]
@@ -279,6 +299,9 @@ def inference(model,test_data,test_idx_loader,prob_file='',labels_file=''):
             # if i>=5:
             #     exit()
 
+        with open('new_data_{}2.pkl'.format(usage),'wb') as f:
+            pickle.dump(new_dataset,f)
+
         test_loss = Loss(labels_hat, labels).item()
 
         test_r2 = R2_score(labels_hat, labels).item()
@@ -287,9 +310,9 @@ def inference(model,test_data,test_idx_loader,prob_file='',labels_file=''):
         min_ratio = th.min(ratio)
         max_ratio = th.max(ratio)
 
-        # if not os.path.exists(prob_file):
-        #     with open(prob_file,'wb') as f:
-        #         pickle.dump(POs_criticalprob.detach().cpu().numpy().tolist(),f)
+        if not os.path.exists(prob_file):
+            with open(prob_file,'wb') as f:
+                pickle.dump(POs_criticalprob.detach().cpu().numpy().tolist(),f)
         # else:
         #     with open(prob_file, 'rb') as f:
         #         POs_criticalprob = pickle.load(f)
@@ -302,11 +325,11 @@ def inference(model,test_data,test_idx_loader,prob_file='',labels_file=''):
         if not os.path.exists(labels_file):
             with open(labels_file, 'wb') as f:
                 pickle.dump(labels_hat[mask2].detach().cpu().numpy().tolist(), f)
-        else:
-            with open(labels_file, 'rb') as f:
-                labels_hat_high = pickle.load(f)
-                labels_hat_high = th.tensor(labels_hat_high).to(device)
-                #labels_hat[mask2] = labels_hat_high
+        # else:
+        #     with open(labels_file, 'rb') as f:
+        #         labels_hat_high = pickle.load(f)
+        #         labels_hat_high = th.tensor(labels_hat_high).to(device)
+        #         #labels_hat[mask2] = labels_hat_high
         print(th.mean(POs_criticalprob))
         print(len(labels[mask1]) / len(labels), len(labels[mask2]) / len(labels))
         temp_r2 = R2_score(labels_hat[mask1], labels[mask1]).item()
@@ -398,6 +421,7 @@ def test(model,test_data,test_idx_loader):
             for j in range(num_cases):
                 # if num_cases==2 and i==0:
                 #     continue
+                new_po_mask = None
                 po_labels,po_labels_margin, pi_delays = None,None,None
                 for data in sampled_data:
                     if options.target_residual:
@@ -406,6 +430,11 @@ def test(model,test_data,test_idx_loader):
                         PIs_delay, POs_label, POs_baselabel,pi2po_edges  = data['delay-label_pairs'][j][:4]
 
                     graph = data['graph']
+
+                    # if len(data['delay-label_pairs'][j])==6:
+                    #     abnormal_mask,normal_mask = data['delay-label_pairs'][j][4:]
+                    #
+                    #     graph.graph.ndata['is_po'][]
 
                     cur_po_labels =  th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
                     cur_po_labels[graph.ndata['is_po'] == 1] = th.tensor(POs_label, dtype=th.float).unsqueeze(-1)
@@ -588,10 +617,13 @@ def train(model):
                 train_loss = 0
                 train_loss = Loss(labels_hat, labels)
 
+                #path_loss = th.mean(path_loss)
+
                 if options.flag_path_supervise:
                     #print(train_loss.item(),path_loss.item())
-                    train_loss += -path_loss
+                    #train_loss += -path_loss
                     #train_loss = th.exp(1-path_loss)*train_loss
+                    train_loss = th.mean(th.exp(1 - path_loss) * th.abs(labels_hat-labels))
                     pass
 
                 train_r2 = R2_score(labels_hat, labels).to(device)
@@ -600,7 +632,7 @@ def train(model):
                 min_ratio = th.min(ratio)
                 max_ratio = th.max(ratio)
                 if i==num_cases-1:
-                    print('{}/{} train_loss:{:.3f}, {:.3f}\ttrain_r2:{:.3f}\ttrain_mape:{:.3f}, ratio:{:.2f}-{:.2f}'.format((batch+1)*options.batch_size,num_traindata,train_loss.item()+path_loss,-path_loss,train_r2.item(),train_mape.item(),min_ratio,max_ratio))
+                    print('{}/{} train_loss:{:.3f}, {:.3f}\ttrain_r2:{:.3f}\ttrain_mape:{:.3f}, ratio:{:.2f}-{:.2f}'.format((batch+1)*options.batch_size,num_traindata,train_loss.item()+th.mean(path_loss),-th.mean(path_loss),train_r2.item(),train_mape.item(),min_ratio,max_ratio))
 
                 optim.zero_grad()
                 train_loss.backward()
@@ -648,29 +680,31 @@ if __name__ == "__main__":
         options.pi_choice = input_options.pi_choice
         options.quick = input_options.quick
         options.flag_delay_pd = input_options.flag_delay_pd
+        options.inv_choice = input_options.inv_choice
 
         # print(options)
         # exit()
         model = init_model(options)
         model.flag_train = True
         flag_inference = True
-        prob_file = os.path.join(options.checkpoint,'POs_criticalprob.pkl')
-        labels_file = os.path.join(options.checkpoint,'labels_hat_high.pkl')
-
 
         if options.flag_reverse and not options.flag_path_supervise:
             if options.pi_choice == 0: model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
             model.mlp_out_new = MLP(options.out_dim, options.hidden_dim, 1)
         model = model.to(device)
         model.load_state_dict(th.load(model_save_path,map_location='cuda:{}'.format(options.gpu)))
-        test_data,test_idx_loader = load_data('test',flag_inference)
+        for usage in ['train','test','val']:
+            prob_file = os.path.join(options.checkpoint,'POs_criticalprob_{}2.pkl'.format(usage))
+            labels_file = os.path.join(options.checkpoint,'labels_hat_high3.pkl')
 
-        test_loss, test_r2, test_mape, test_min_ratio, test_max_ratio = test(model, test_data,test_idx_loader)
+            test_data,test_idx_loader = load_data(usage,flag_inference)
 
-        #test_loss, test_r2,test_mape,test_min_ratio,test_max_ratio = inference(model, test_data,test_idx_loader,prob_file,labels_file)
-        print(
-            '\ttest: loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(test_loss, test_r2,
-                                                                                                     test_mape,test_min_ratio,test_max_ratio))
+            #test_loss, test_r2, test_mape, test_min_ratio, test_max_ratio = test(model, test_data,test_idx_loader)
+
+            test_loss, test_r2,test_mape,test_min_ratio,test_max_ratio = inference(model, test_data,test_idx_loader,usage,prob_file,labels_file)
+            print(
+                '\ttest: loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(test_loss, test_r2,
+                                                                                                         test_mape,test_min_ratio,test_max_ratio))
     elif options.checkpoint:
         print('saving logs and models to ../checkpoints/{}'.format(options.checkpoint))
         checkpoint_path = '../checkpoints/{}'.format(options.checkpoint)
