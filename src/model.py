@@ -37,6 +37,7 @@ class TimeConv(nn.Module):
                  pi_choice=0,
                  agg_choice=0,
                  attn_choice=1,
+                 inv_choice=-1,
                  flag_width=False,
                  flag_delay_pd=False,
                  flag_delay_m=False,
@@ -53,6 +54,7 @@ class TimeConv(nn.Module):
                  flag_attn=False):
         super(TimeConv, self).__init__()
 
+        self.inv_choice = inv_choice
         self.flag_width = flag_width
         self.flag_delay_m = flag_delay_m
         self.flag_delay_g = flag_delay_g
@@ -116,6 +118,9 @@ class TimeConv(nn.Module):
             if self.flag_delay_pd:
                 neigh_dim_m += 1
                 neigh_dim_g += 1
+            if self.inv_choice in [0,2]:
+                neigh_dim_m += 1
+                neigh_dim_g += 1
             self.mlp_neigh_module = MLP(neigh_dim_m, int(hidden_dim / 2), hidden_dim)
             self.mlp_neigh_gate = MLP(neigh_dim_g, int(hidden_dim / 2), hidden_dim)
         if flag_global:
@@ -139,6 +144,12 @@ class TimeConv(nn.Module):
             if self.flag_ntype_g:
                 atnn_dim_g += hidden_dim_attn
                 self.mlp_type_g = MLP(self.infeat_dim1, hidden_dim_attn, hidden_dim_attn)
+
+            if self.inv_choice in [ 1,2]:
+                atnn_dim_m += hidden_dim_attn
+                self.mlp_inv = MLP(1, hidden_dim_attn, hidden_dim_attn)
+                atnn_dim_g += hidden_dim_attn
+
 
             self.attention_vector_g = nn.Parameter(th.randn(atnn_dim_g, 1), requires_grad=True)
             self.attention_vector_m = nn.Parameter(th.randn(atnn_dim_m,1),requires_grad=True)
@@ -228,7 +239,8 @@ class TimeConv(nn.Module):
             z = th.cat((edges.src['h'], m_pos,m_level,m_type), dim=1)
         else:
             z = th.cat((edges.src['h'], m_pos, m_type), dim=1)
-
+        if self.inv_choice in [1,2]:
+            z = th.cat((z, self.mlp_inv(edges.data['is_inv'])), dim=1)
         e = th.matmul(z, self.attention_vector_m)
         e = self.activation2(e)
         return {'attn_e': e}
@@ -240,6 +252,8 @@ class TimeConv(nn.Module):
         #pos = edges.data['bit_position'].unsqueeze(1)
         if self.flag_delay_pd:
             m = th.cat((m,self.mlp_out(m)),dim=1)
+        if self.inv_choice in [0,2]:
+            m = th.cat((m, edges.data['is_inv']), dim=1)
         rst = {'m':m,'pos':edges.data['bit_position']}
         if self.flag_attn:
             rst['attn_e'] = edges.data['attn_e']
@@ -293,6 +307,8 @@ class TimeConv(nn.Module):
         if self.flag_ntype_g:
             m_type = self.mlp_type_g(edges.dst[self.feat_name2])
             z = th.cat((z, m_type), dim=1)
+        if self.inv_choice in [1,2]:
+            z = th.cat((z, self.mlp_inv(edges.data['is_inv'])), dim=1)
         e = th.matmul(z, self.attention_vector_g)
         e = self.activation2(e)
         return {'attn_e': e}
@@ -313,6 +329,8 @@ class TimeConv(nn.Module):
         m = edges.src['h']
         if self.flag_delay_pd:
             m = th.cat((m,self.mlp_out(m)),dim=1)
+        if self.inv_choice in [0,2]:
+            m = th.cat((m, edges.data['is_inv']), dim=1)
         return {'m':m,'attn_e':edges.data['attn_e']}
 
     def reduce_func_smoothmax(self, nodes):
@@ -510,9 +528,9 @@ class TimeConv(nn.Module):
                     graph.ndata['hp'] = nodes_prob
                     graph.ndata['id'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.int64).to(device)
                     graph.ndata['id'][POs] = th.tensor(range(len(POs)), dtype=th.int64).unsqueeze(-1).to(device)
-                    graph.pull(POs, self.message_func_loss, fn.sum('ml', 'loss'), etype='pi2po')
+                    graph.pull(POs, self.message_func_loss, fn.max('ml', 'loss'), etype='pi2po')
                     POs_criticalprob = None
-                    graph.pull(POs, self.message_func_prob, fn.sum('mp', 'prob'), etype='pi2po')
+                    graph.pull(POs, self.message_func_prob, fn.max('mp', 'prob'), etype='pi2po')
                     POs_criticalprob = graph.ndata['prob'][POs]
 
                     # graph.pull(POs, fn.copy_src('delay','md'), fn.mean('md', 'di'), etype='pi2po')
@@ -555,21 +573,21 @@ class TimeConv(nn.Module):
                     #     PI_prob = PIs_prob[j]
                     #     if PI_prob.item()<0.5:
                     #         continue
-                    #     print(po_name)
+                    #     print('{} --> {}'.format('di_13[0]',po_name))
+                    #     print('\t',graph_info['nodes_name'][po],'\t',graph_info['ntype'][po])
                     #     cur_nid = po
                     #     while True:
                     #         preds = graph.successors(cur_nid,etype='reverse')
-                    #         print(len(preds))
-                    #         print([graph_info['nodes_name'][n] for n in preds.detach().cpu().numpy().tolist()])
-                    #         preds_prob = nodes_prob[preds]
-                    #         print(preds_prob)
-                    #         exit()
                     #         if len(preds)==0:
                     #             break
+                    #         preds_prob = nodes_prob[preds][:,j]
+                    #         cur_nid = preds[th.argmax(preds_prob)]
+                    #         prob = preds_prob[th.argmax(preds_prob)]
                     #         #assert  len(cur_nid)==1, "{}".format(cur_nid)
-                    #         print('\t',graph_info['nodes_name'][cur_nid])
+                    #         print('\t',graph_info['nodes_name'][cur_nid],'\t',graph_info['ntype'][cur_nid])
                     # exit()
-                    #
+
+
                     # POs_delay_w = th.matmul(PIs_prob, graph.ndata['delay'][PIs_mask])
                     #
                     # cur_PIs_dst = PIs_dst[POname2idx['do_10[2]']]
