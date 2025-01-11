@@ -27,7 +27,7 @@ import itertools
 options = get_options()
 device = th.device("cuda:" + str(options.gpu) if th.cuda.is_available() else "cpu")
 R2_score = R2Score().to(device)
-#Loss = nn.MSELoss()
+Loss = nn.MSELoss()
 Loss = nn.L1Loss()
 
 
@@ -445,7 +445,7 @@ def test(model,test_data,test_idx_loader):
                         abnormal_POs = abnormal_POs + start_idx
                         normal_POs = normal_POs + start_idx
                         start_idx += num_nodes
-                        new_POs = cat_tensor(new_POs,normal_POs)
+                        new_POs = cat_tensor(new_POs,abnormal_POs)
 
 
                     cur_po_labels =  th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
@@ -465,7 +465,7 @@ def test(model,test_data,test_idx_loader):
                     #nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
                     #shared_po = th.logical_and(sampled_graphs.ndata['is_po']==1, new_po_mask==1)
                     #print(len(new_POs),len(nodes_list[sampled_graphs.ndata['is_po']==1]),len(nodes_list[shared_po]))
-                    #sampled_graphs.ndata['is_po'] = new_po_mask
+                    sampled_graphs.ndata['is_po'] = new_po_mask
                     graphs_info['POs_mask'] = (sampled_graphs.ndata['is_po'] == 1).squeeze(-1).to(device)
 
                 sampled_graphs.ndata['label'] = po_labels.to(device)
@@ -611,7 +611,7 @@ def train(model):
                         abnormal_POs,normal_POs = data['delay-label_pairs'][i][4:]
                         abnormal_POs = abnormal_POs + start_idx
                         normal_POs = normal_POs + start_idx
-                        new_POs = cat_tensor(new_POs,normal_POs)
+                        new_POs = cat_tensor(new_POs,abnormal_POs)
 
                     if options.flag_path_supervise:
                         new_edges[0].extend([nid+start_idx for nid in pi2po_edges[0]])
