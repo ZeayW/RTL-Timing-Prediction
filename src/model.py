@@ -512,7 +512,7 @@ class TimeConv(nn.Module):
             rst = self.mlp_out(h)
 
             if not self.flag_train and self.flag_path_supervise:
-                return rst,th.tensor(0),None
+                return rst,th.tensor([0.0]),None
 
 
             if self.flag_reverse:
@@ -723,7 +723,7 @@ class TimeConv(nn.Module):
             #print('g',num_gate,th.sum(graph.edges['intra_gate'].data['weight']))
             #print('m',num_module,th.sum(graph.edges['intra_module'].data['weight']))
 
-            return rst,th.tensor(0),None
+            return rst,th.tensor([0.0]),None
 
 class GraphBackProp(nn.Module):
 
