@@ -27,8 +27,9 @@ import itertools
 options = get_options()
 device = th.device("cuda:" + str(options.gpu) if th.cuda.is_available() else "cpu")
 R2_score = R2Score().to(device)
-Loss = nn.MSELoss()
-#Loss = nn.L1Loss()
+#Loss = nn.MSELoss()
+Loss = nn.L1Loss()
+
 
 with open(os.path.join(options.data_savepath, 'ntype2id.pkl'), 'rb') as f:
     ntype2id,ntype2id_gate,ntype2id_module = pickle.load(f)
@@ -386,10 +387,10 @@ def test(model,test_data,test_idx_loader):
         labels,labels_hat = None,None
 
         batch_size = test_idx_loader.batch_size
-        for i in range(0,len(test_data),batch_size):
-            idxs = list(range(i,min(i+batch_size,len(test_data))))
-        # for batch, idxs in enumerate(test_idx_loader):
-        #     idxs = idxs.numpy().tolist()
+        # for i in range(0,len(test_data),batch_size):
+        #     idxs = list(range(i,min(i+batch_size,len(test_data))))
+        for batch, idxs in enumerate(test_idx_loader):
+            idxs = idxs.numpy().tolist()
             sampled_data = []
             num_cases = 100
             graphs = []
@@ -405,7 +406,7 @@ def test(model,test_data,test_idx_loader):
             topo_levels = gen_topo(sampled_graphs)
             graphs_info['is_heter'] = is_heter(sampled_graphs)
             graphs_info['topo'] = [l.to(device) for l in topo_levels]
-            #graphs_info['POs_mask'] = (sampled_graphs.ndata['is_po'] == 1).squeeze(-1).to(device)
+            graphs_info['POs_mask'] = (sampled_graphs.ndata['is_po'] == 1).squeeze(-1).to(device)
             POs_topolevel = sampled_graphs.ndata['PO_feat'][sampled_graphs.ndata['is_po'] == 1].to(device)
             graphs_info['POs_feat'] = POs_topolevel
             if options.flag_reverse and not options.flag_path_supervise:
@@ -422,9 +423,12 @@ def test(model,test_data,test_idx_loader):
 
             # num_cases = 2
             # print(data['design_name'])
+            flag_separate = False
+
             for j in range(num_cases):
                 # if num_cases==2 and i==0:
                 #     continue
+                start_idx = 0
                 new_POs = None
                 po_labels,po_labels_margin, pi_delays = None,None,None
                 for data in sampled_data:
@@ -435,13 +439,13 @@ def test(model,test_data,test_idx_loader):
 
                     graph = data['graph']
                     num_nodes = graph.number_of_nodes()
-                    start_idx = 0
                     if len(data['delay-label_pairs'][j])==6:
+                        flag_separate = True
                         abnormal_POs,normal_POs = data['delay-label_pairs'][j][4:]
                         abnormal_POs = abnormal_POs + start_idx
                         normal_POs = normal_POs + start_idx
                         start_idx += num_nodes
-                        new_POs = cat_tensor(new_POs,abnormal_POs)
+                        new_POs = cat_tensor(new_POs,normal_POs)
 
 
                     cur_po_labels =  th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
@@ -454,10 +458,15 @@ def test(model,test_data,test_idx_loader):
                     po_labels = cat_tensor(po_labels,cur_po_labels)
                     pi_delays = cat_tensor(pi_delays,cur_pi_delays)
 
-                new_po_mask = th.zeros((sampled_graphs.number_of_nodes(),1),dtype=th.float)
-                new_po_mask[new_POs] = 1
-                sampled_graphs.ndata['is_po'] = new_po_mask.squeeze(1).to(device)
-                graphs_info['POs_mask'] = (sampled_graphs.ndata['is_po'] == 1).squeeze(-1).to(device)
+                if flag_separate:
+                    new_po_mask = th.zeros((sampled_graphs.number_of_nodes(),1),dtype=th.float)
+                    new_po_mask[new_POs] = 1
+                    new_po_mask = new_po_mask.squeeze(1).to(device)
+                    #nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
+                    #shared_po = th.logical_and(sampled_graphs.ndata['is_po']==1, new_po_mask==1)
+                    #print(len(new_POs),len(nodes_list[sampled_graphs.ndata['is_po']==1]),len(nodes_list[shared_po]))
+                    #sampled_graphs.ndata['is_po'] = new_po_mask
+                    graphs_info['POs_mask'] = (sampled_graphs.ndata['is_po'] == 1).squeeze(-1).to(device)
 
                 sampled_graphs.ndata['label'] = po_labels.to(device)
                 sampled_graphs.ndata['delay'] = pi_delays.to(device)
@@ -602,7 +611,7 @@ def train(model):
                         abnormal_POs,normal_POs = data['delay-label_pairs'][i][4:]
                         abnormal_POs = abnormal_POs + start_idx
                         normal_POs = normal_POs + start_idx
-                        new_POs = cat_tensor(new_POs,abnormal_POs)
+                        new_POs = cat_tensor(new_POs,normal_POs)
 
                     if options.flag_path_supervise:
                         new_edges[0].extend([nid+start_idx for nid in pi2po_edges[0]])
@@ -632,10 +641,10 @@ def train(model):
                 new_po_mask = th.zeros((sampled_graphs.number_of_nodes(), 1), dtype=th.float)
                 new_po_mask[new_POs] = 1
                 new_po_mask = new_po_mask.squeeze(1).to(device)
-                # nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
+                #nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
                 #shared_po = th.logical_and(sampled_graphs.ndata['is_po']==1, new_po_mask==1)
                 #print(len(new_POs),len(nodes_list[sampled_graphs.ndata['is_po']==1]),len(nodes_list[shared_po]))
-                sampled_graphs.ndata['is_po'] = new_po_mask
+                #sampled_graphs.ndata['is_po'] = new_po_mask
                 graphs_info['POs_mask'] = (sampled_graphs.ndata['is_po'] == 1).squeeze(-1).to(device)
 
                 sampled_graphs.ndata['label'] = po_labels.to(device)
@@ -734,7 +743,9 @@ if __name__ == "__main__":
             model.mlp_out_new = MLP(options.out_dim, options.hidden_dim, 1)
         model = model.to(device)
         model.load_state_dict(th.load(model_save_path,map_location='cuda:{}'.format(options.gpu)))
-        for usage in ['train','test','val']:
+        usages = ['train','test','val']
+        usages = ['val']
+        for usage in usages:
             save_file_dir = '../checkpoints/cases_round6_v2/heter_filter_fixmux_fixbuf_simplify01_merge_fixPO_fixBuf/bs32_attn0-smoothmax_noglobal_piFeatValue_reduceNtype_featpos_mse_attnLeaky02_pathsum_init'
             #save_file_dir = options.checkpoint
             prob_file = os.path.join(save_file_dir,'POs_criticalprob_{}2.pkl'.format(usage))
@@ -742,9 +753,9 @@ if __name__ == "__main__":
 
             test_data,test_idx_loader = load_data(usage,flag_inference)
 
-            #test_loss, test_r2, test_mape, test_min_ratio, test_max_ratio = test(model, test_data,test_idx_loader)
+            test_loss, test_r2, test_mape, test_min_ratio, test_max_ratio = test(model, test_data,test_idx_loader)
 
-            test_loss, test_r2,test_mape,test_min_ratio,test_max_ratio = inference(model, test_data,test_idx_loader,usage,prob_file,labels_file)
+            #test_loss, test_r2,test_mape,test_min_ratio,test_max_ratio = inference(model, test_data,test_idx_loader,usage,prob_file,labels_file)
             print(
                 '\ttest: loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(test_loss, test_r2,
                                                                                                          test_mape,test_min_ratio,test_max_ratio))
