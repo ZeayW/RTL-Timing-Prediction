@@ -467,7 +467,7 @@ def test(model,test_data,test_idx_loader):
                     #print(len(new_POs),len(nodes_list[sampled_graphs.ndata['is_po']==1]),len(nodes_list[shared_po]))
                     sampled_graphs.ndata['is_po'] = new_po_mask
                     graphs_info['POs_mask'] = (sampled_graphs.ndata['is_po'] == 1).squeeze(-1).to(device)
-
+                    graphs_info['POs'] = new_POs.detach().cpu().numpy().tolist()
                 sampled_graphs.ndata['label'] = po_labels.to(device)
                 sampled_graphs.ndata['delay'] = pi_delays.to(device)
                 sampled_graphs.ndata['input_delay'] = pi_delays.to(device)
@@ -479,7 +479,7 @@ def test(model,test_data,test_idx_loader):
                 labels_hat = cat_tensor(labels_hat,cur_labels_hat)
                 labels = cat_tensor(labels,cur_labels)
 
-        print(len(labels))
+
         test_loss = Loss(labels_hat, labels).item()
 
         test_r2 = R2_score(labels_hat, labels).item()
@@ -644,7 +644,7 @@ def train(model):
                 #nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
                 #shared_po = th.logical_and(sampled_graphs.ndata['is_po']==1, new_po_mask==1)
                 #print(len(new_POs),len(nodes_list[sampled_graphs.ndata['is_po']==1]),len(nodes_list[shared_po]))
-                #sampled_graphs.ndata['is_po'] = new_po_mask
+                sampled_graphs.ndata['is_po'] = new_po_mask
                 graphs_info['POs_mask'] = (sampled_graphs.ndata['is_po'] == 1).squeeze(-1).to(device)
 
                 sampled_graphs.ndata['label'] = po_labels.to(device)
@@ -667,6 +667,7 @@ def train(model):
                 train_loss = 0
                 train_loss = Loss(labels_hat, labels)
 
+                #print(len(labels),len(path_loss))
                 path_loss = th.mean(path_loss)
 
                 if options.flag_path_supervise:
