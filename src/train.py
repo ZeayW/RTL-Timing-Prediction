@@ -594,6 +594,10 @@ def train(model):
                 #     sampled_graphs.ndata['hp'][po][i] = 1
                 #     sampled_graphs.ndata['hd'][po][i] = 0
 
+            num_POs = 0
+            totoal_path_loss = 0
+            total_labels = None
+            total_labels_hat = None
             for i in range(num_cases):
                 po_labels, pi_delays = None,None
                 start_idx = 0
@@ -638,9 +642,12 @@ def train(model):
                     #sampled_graphs = add_newEtype(sampled_graphs, 'pi2po', new_edges, {})
 
 
+                if new_POs is None or len(new_POs) ==0:
+                    continue
                 new_po_mask = th.zeros((sampled_graphs.number_of_nodes(), 1), dtype=th.float)
                 new_po_mask[new_POs] = 1
                 new_po_mask = new_po_mask.squeeze(1).to(device)
+
                 #nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
                 #shared_po = th.logical_and(sampled_graphs.ndata['is_po']==1, new_po_mask==1)
                 #print(len(new_POs),len(nodes_list[sampled_graphs.ndata['is_po']==1]),len(nodes_list[shared_po]))
@@ -667,8 +674,14 @@ def train(model):
                 train_loss = 0
                 train_loss = Loss(labels_hat, labels)
 
+                num_POs += len(path_loss)
+                totoal_path_loss += th.sum(path_loss).item()
+                total_labels = cat_tensor(total_labels,labels)
+                total_labels_hat = cat_tensor(total_labels_hat, labels_hat)
+
                 #print(len(labels),len(path_loss))
                 path_loss = th.mean(path_loss)
+
 
                 if options.flag_path_supervise:
                     #print(train_loss.item(),path_loss.item())
@@ -677,13 +690,19 @@ def train(model):
                     #train_loss = th.mean(th.exp(1 - path_loss) * th.abs(labels_hat-labels))
                     pass
 
-                train_r2 = R2_score(labels_hat, labels).to(device)
-                train_mape = th.mean(th.abs(labels_hat[labels!=0]-labels[labels!=0])/labels[labels!=0])
-                ratio = labels_hat[labels!=0] / labels[labels!=0]
-                min_ratio = th.min(ratio)
-                max_ratio = th.max(ratio)
+
                 if i==num_cases-1:
-                    print('{}/{} train_loss:{:.3f}, {:.3f}\ttrain_r2:{:.3f}\ttrain_mape:{:.3f}, ratio:{:.2f}-{:.2f}'.format((batch+1)*options.batch_size,num_traindata,train_loss.item()+th.mean(path_loss),-th.mean(path_loss),train_r2.item(),train_mape.item(),min_ratio,max_ratio))
+                    train_r2 = R2_score(total_labels_hat, total_labels).to(device)
+                    train_mape = th.mean(th.abs(total_labels_hat[total_labels != 0] - total_labels[total_labels != 0]) / total_labels[total_labels != 0])
+                    ratio = labels_hat[total_labels != 0] / total_labels[total_labels != 0]
+                    min_ratio = th.min(ratio)
+                    max_ratio = th.max(ratio)
+                    path_loss_avg = totoal_path_loss / num_POs
+                    print(data['design_name'],len(total_labels),num_POs)
+                    print('{}/{} train_loss:{:.3f}, {:.3f}\ttrain_r2:{:.3f}\ttrain_mape:{:.3f}, ratio:{:.2f}-{:.2f}'.format((batch+1)*options.batch_size,num_traindata,train_loss.item(),-path_loss_avg,train_r2.item(),train_mape.item(),min_ratio,max_ratio))
+
+                if len(labels) ==0:
+                    continue
 
                 optim.zero_grad()
                 train_loss.backward()
