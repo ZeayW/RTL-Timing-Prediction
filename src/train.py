@@ -303,9 +303,9 @@ def inference(model,test_data,test_idx_loader,usage='test',prob_file='',labels_f
             # if i>=5:
             #     exit()
 
-        if options.flag_path_supervise:
-            with open('new_data_{}2.pkl'.format(usage),'wb') as f:
-                pickle.dump(new_dataset,f)
+        # if options.flag_path_supervise:
+        #     with open('new_data_{}2.pkl'.format(usage),'wb') as f:
+        #         pickle.dump(new_dataset,f)
 
         test_loss = Loss(labels_hat, labels).item()
 
@@ -325,6 +325,7 @@ def inference(model,test_data,test_idx_loader,usage='test',prob_file='',labels_f
 
         mask1 = POs_criticalprob.squeeze(1) <= 0.05
         mask2 = POs_criticalprob.squeeze(1) > 0.5
+        mask3 = th.logical_and(POs_criticalprob.squeeze(1) > 0.05,POs_criticalprob.squeeze(1) <=0.5)
         mask_l = labels.squeeze(1) != 0
 
         # if not os.path.exists(labels_file):
@@ -347,6 +348,16 @@ def inference(model,test_data,test_idx_loader,usage='test',prob_file='',labels_f
             th.abs(labels_hat[th.logical_and(mask2, mask_l)] - labels[th.logical_and(mask2, mask_l)]) /
             labels[th.logical_and(mask2, mask_l)])
         print(temp_r2, temp_mape)
+
+        temp_r3 = R2_score(labels_hat[mask3], labels[mask3]).item()
+        temp_mape = th.mean(
+            th.abs(labels_hat[th.logical_and(mask3, mask_l)] - labels[th.logical_and(mask3, mask_l)]) /
+            labels[th.logical_and(mask3, mask_l)])
+        print(temp_r3, temp_mape)
+        with open("labels2.pkl", 'wb') as f:
+            pickle.dump(labels[mask3].detach().cpu(), f)
+        with open("labels2_hat.pkl", 'wb') as f:
+            pickle.dump(labels_hat[mask3].detach().cpu(), f)
 
         # x = []
         # y = []
@@ -425,6 +436,7 @@ def test(model,test_data,test_idx_loader):
             # print(data['design_name'])
             flag_separate = False
 
+
             for j in range(num_cases):
                 # if num_cases==2 and i==0:
                 #     continue
@@ -442,10 +454,18 @@ def test(model,test_data,test_idx_loader):
                     if len(data['delay-label_pairs'][j])==6:
                         flag_separate = True
                         abnormal_POs,normal_POs = data['delay-label_pairs'][j][4:]
+
+                        # nodes_list = th.tensor(range(graph.number_of_nodes())).to(device)
+                        # POs = nodes_list[graph.ndata['is_po'] == 1]
+                        # middle_POs = set(POs.detach().cpu().numpy().tolist()) - set(abnormal_POs.detach().cpu().numpy().tolist()) - set(normal_POs.detach().cpu().numpy().tolist())
+                        # middle_POs = th.tensor(list(middle_POs),dtype=th.long).to(device)
+                        # middle_POs =  middle_POs + start_idx
+                        #print(len(POs),len(abnormal_POs),len(normal_POs),len(middle_POs))
+                        #print(abnormal_POs,middle_POs)
                         abnormal_POs = abnormal_POs + start_idx
                         normal_POs = normal_POs + start_idx
                         start_idx += num_nodes
-                        new_POs = cat_tensor(new_POs,abnormal_POs)
+                        new_POs = cat_tensor(new_POs,normal_POs)
 
 
                     cur_po_labels =  th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
@@ -478,6 +498,11 @@ def test(model,test_data,test_idx_loader):
 
                 labels_hat = cat_tensor(labels_hat,cur_labels_hat)
                 labels = cat_tensor(labels,cur_labels)
+
+        # with open("labels2.pkl",'wb') as f:
+        #     pickle.dump(labels.detach().cpu(),f)
+        # with open("labels2_hat.pkl",'wb') as f:
+        #     pickle.dump(labels_hat.detach().cpu(),f)
 
 
         test_loss = Loss(labels_hat, labels).item()
@@ -585,9 +610,9 @@ def train(model):
             if options.flag_reverse:
                 topo_r = gen_topo(sampled_graphs, flag_reverse=True)
                 graphs_info['topo_r'] = [l.to(device) for l in topo_r]
-                # nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
-                # POs = nodes_list[sampled_graphs.ndata['is_po'] == 1]
-                # graphs_info['POs'] = POs.detach().cpu().numpy().tolist()
+                nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
+                POs = nodes_list[sampled_graphs.ndata['is_po'] == 1]
+                graphs_info['POs'] = POs.detach().cpu().numpy().tolist()
                 # sampled_graphs.ndata['hd'] = -1000*th.ones((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
                 # sampled_graphs.ndata['hp'] = th.zeros((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
                 # for i, po in enumerate(POs):
@@ -598,6 +623,7 @@ def train(model):
             totoal_path_loss = 0
             total_labels = None
             total_labels_hat = None
+            flag_separate = False
             for i in range(num_cases):
                 po_labels, pi_delays = None,None
                 start_idx = 0
@@ -612,10 +638,11 @@ def train(model):
                     graph = data['graph']
 
                     if len(data['delay-label_pairs'][i])==6:
+                        flag_separate = True
                         abnormal_POs,normal_POs = data['delay-label_pairs'][i][4:]
                         abnormal_POs = abnormal_POs + start_idx
                         normal_POs = normal_POs + start_idx
-                        new_POs = cat_tensor(new_POs,abnormal_POs)
+                        new_POs = cat_tensor(new_POs,normal_POs)
 
                     if options.flag_path_supervise:
                         new_edges[0].extend([nid+start_idx for nid in pi2po_edges[0]])
@@ -642,16 +669,17 @@ def train(model):
                     #sampled_graphs = add_newEtype(sampled_graphs, 'pi2po', new_edges, {})
 
 
-                if new_POs is None or len(new_POs) ==0:
-                    continue
-                new_po_mask = th.zeros((sampled_graphs.number_of_nodes(), 1), dtype=th.float)
-                new_po_mask[new_POs] = 1
-                new_po_mask = new_po_mask.squeeze(1).to(device)
+                # if new_POs is None or len(new_POs) ==0:
+                #     continue
+                if flag_separate:
+                    new_po_mask = th.zeros((sampled_graphs.number_of_nodes(), 1), dtype=th.float)
+                    new_po_mask[new_POs] = 1
+                    new_po_mask = new_po_mask.squeeze(1).to(device)
 
-                #nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
-                #shared_po = th.logical_and(sampled_graphs.ndata['is_po']==1, new_po_mask==1)
-                #print(len(new_POs),len(nodes_list[sampled_graphs.ndata['is_po']==1]),len(nodes_list[shared_po]))
-                sampled_graphs.ndata['is_po'] = new_po_mask
+                    #nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
+                    #shared_po = th.logical_and(sampled_graphs.ndata['is_po']==1, new_po_mask==1)
+                    #print(len(new_POs),len(nodes_list[sampled_graphs.ndata['is_po']==1]),len(nodes_list[shared_po]))
+                    sampled_graphs.ndata['is_po'] = new_po_mask
                 graphs_info['POs_mask'] = (sampled_graphs.ndata['is_po'] == 1).squeeze(-1).to(device)
 
                 sampled_graphs.ndata['label'] = po_labels.to(device)
@@ -659,8 +687,9 @@ def train(model):
                 sampled_graphs.ndata['input_delay'] = pi_delays.to(device)
 
                 if options.flag_reverse:
-                    POs = new_POs
-                    graphs_info['POs'] = POs.detach().cpu().numpy().tolist()
+                    if flag_separate:
+                        POs = new_POs
+                        graphs_info['POs'] = POs.detach().cpu().numpy().tolist()
                     sampled_graphs.ndata['hd'] = -1000*th.ones((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
                     sampled_graphs.ndata['hp'] = th.zeros((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
                     for j, po in enumerate(POs):
@@ -694,12 +723,12 @@ def train(model):
                 if i==num_cases-1:
                     train_r2 = R2_score(total_labels_hat, total_labels).to(device)
                     train_mape = th.mean(th.abs(total_labels_hat[total_labels != 0] - total_labels[total_labels != 0]) / total_labels[total_labels != 0])
-                    ratio = labels_hat[total_labels != 0] / total_labels[total_labels != 0]
+                    ratio = total_labels_hat[total_labels != 0] / total_labels[total_labels != 0]
                     min_ratio = th.min(ratio)
                     max_ratio = th.max(ratio)
                     path_loss_avg = totoal_path_loss / num_POs
-                    print(data['design_name'],len(total_labels),num_POs)
-                    print('{}/{} train_loss:{:.3f}, {:.3f}\ttrain_r2:{:.3f}\ttrain_mape:{:.3f}, ratio:{:.2f}-{:.2f}'.format((batch+1)*options.batch_size,num_traindata,train_loss.item(),-path_loss_avg,train_r2.item(),train_mape.item(),min_ratio,max_ratio))
+                    #print(data['design_name'],len(total_labels),num_POs)
+                    print('{}/{} train_loss:{:.3f}, {:.3f}\ttrain_r2:{:.3f}\ttrain_mape:{:.3f}, ratio:{:.2f}-{:.2f}'.format((batch+1)*options.batch_size,num_traindata,train_loss.item(),path_loss_avg,train_r2.item(),train_mape.item(),min_ratio,max_ratio))
 
                 if len(labels) ==0:
                     continue
@@ -764,7 +793,7 @@ if __name__ == "__main__":
         model = model.to(device)
         model.load_state_dict(th.load(model_save_path,map_location='cuda:{}'.format(options.gpu)))
         usages = ['train','test','val']
-        usages = ['val']
+        usages = ['test']
         for usage in usages:
             save_file_dir = '../checkpoints/cases_round6_v2/heter_filter_fixmux_fixbuf_simplify01_merge_fixPO_fixBuf/bs32_attn0-smoothmax_noglobal_piFeatValue_reduceNtype_featpos_mse_attnLeaky02_pathsum_init'
             #save_file_dir = options.checkpoint
@@ -779,6 +808,7 @@ if __name__ == "__main__":
             print(
                 '\ttest: loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(test_loss, test_r2,
                                                                                                          test_mape,test_min_ratio,test_max_ratio))
+
     elif options.checkpoint:
         print('saving logs and models to ../checkpoints/{}'.format(options.checkpoint))
         checkpoint_path = '../checkpoints/{}'.format(options.checkpoint)

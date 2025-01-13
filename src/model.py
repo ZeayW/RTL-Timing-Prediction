@@ -528,9 +528,9 @@ class TimeConv(nn.Module):
                     graph.ndata['hp'] = nodes_prob
                     graph.ndata['id'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.int64).to(device)
                     graph.ndata['id'][POs] = th.tensor(range(len(POs)), dtype=th.int64).unsqueeze(-1).to(device)
-                    graph.pull(POs, self.message_func_loss, fn.sum('ml', 'loss'), etype='pi2po')
+                    graph.pull(POs, self.message_func_loss, fn.max('ml', 'loss'), etype='pi2po')
                     POs_criticalprob = None
-                    graph.pull(POs, self.message_func_prob, fn.sum('mp', 'prob'), etype='pi2po')
+                    graph.pull(POs, self.message_func_prob, fn.max('mp', 'prob'), etype='pi2po')
                     POs_criticalprob = graph.ndata['prob'][POs]
 
                     # graph.pull(POs, fn.copy_src('delay','md'), fn.mean('md', 'di'), etype='pi2po')
