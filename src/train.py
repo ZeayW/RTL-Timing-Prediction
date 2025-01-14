@@ -84,7 +84,13 @@ def load_data(usage,flag_inference=False):
 
         if options.flag_homo:
             graph = heter2homo(graph)
-        
+
+        if options.remove01:
+            nodes_list = th.tensor(range(graph.number_of_nodes()))
+            mask = th.logical_or(graph.ndata['value'][:,0]==1, graph.ndata['value'][:,1]==1)
+            constant_list = nodes_list[mask]
+            graph.remove_nodes(constant_list)
+
         if options.inv_choice!=-1:
             graph.edges['intra_module'].data['is_inv'] = graph.edges['intra_module'].data['is_inv'].unsqueeze(1)
             graph.edges['intra_gate'].data['is_inv'] = graph.edges['intra_gate'].data['is_inv'].unsqueeze(1)

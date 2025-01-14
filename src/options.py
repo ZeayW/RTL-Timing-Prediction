@@ -3,6 +3,7 @@ import argparse
 
 def get_options(args=None):
     parser = argparse.ArgumentParser()
+    parser.add_argument('--remove01',action='store_true')
     parser.add_argument('--inv_choice',type=int,default=-1)
     parser.add_argument('--quick',action='store_true')
     parser.add_argument('--flag_width', action='store_true')
