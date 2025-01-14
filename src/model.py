@@ -208,7 +208,9 @@ class TimeConv(nn.Module):
         if self.flag_delay_pi:
             m_self = th.cat((m_self,nodes.data['input_delay']),dim=1)
         if self.agg_choice ==0:
+
             h = th.cat((nodes.data['neigh'], m_self), dim=1)
+
             h = self.mlp_neigh_gate(h)
         else:
             h = self.mlp_neigh_gate(nodes.data['neigh']) + self.mlp_self_gate(m_self)
@@ -547,27 +549,34 @@ class TimeConv(nn.Module):
                     #
                     # POs_name = [graph_info['nodes_name'][n] for n in POs]
                     # POname2idx = {n: i for i, n in enumerate(POs_name)}
-                    # cur_PIs_dst = PIs_dst[POname2idx['do_10[2]']]
+                    # cur_PIs_dst = PIs_dst[POname2idx['do_15[1]']]
                     # mask = cur_PIs_dst >= 0
                     # nodes_list = th.tensor(range(graph.number_of_nodes())).to(device)
-                    # PIs_idx = nodes_list[PIs_mask][mask]
-                    # PIs_name = [graph_info['nodes_name'][n] for n in PIs_idx]
+                    # PIs_nid = nodes_list[PIs_mask][mask]
+                    # PIs_nid2idx = {nid:i for i,nid in enumerate(PIs_nid.detach().cpu().numpy().tolist())}
+                    # PIs_name = [graph_info['nodes_name'][n] for n in PIs_nid]
                     # idxs = []
                     # for j,pi in enumerate(PIs_name):
                     #     if pi in ['di_13[0]']:
                     #         idxs.append(j)
                     # #print(idxs)
-                    # PIs_prob = PIs_prob[:,idxs]
+                    # #PIs_prob = PIs_prob[:,idxs]
                     # for j, po in enumerate(POs):
+                    #     prob = PIs_prob[j]
+                    #     prob_list = prob.detach().cpu().numpy().tolist()
                     #     po_name = graph_info['nodes_name'][po]
-                    #     PI_prob = PIs_prob[j]
-                    #     print(po_name,PI_prob)
+                    #     critical_PIs = graph.in_edges(po, etype='pi2po')[
+                    #         0].detach().cpu().numpy().tolist()
+                    #     predicted_critical_PI = th.argmax(prob).item()
+                    #     flag = predicted_critical_PI in  critical_PIs
+                    #     critical_PIs.append(predicted_critical_PI)
+                    #     print(po_name,flag,{graph_info['nodes_name'][n]:prob_list[PIs_nid2idx[n]] for n in critical_PIs})
                     #
                     # reverse_eids = th.tensor(range(graph.number_of_edges(etype='reverse'))).to(device)
                     #
                     # noncritical_eids = reverse_eids[graph.edges['reverse'].data['weight'].squeeze(1)<0.1]
                     #
-                    # #graph.remove_edges(noncritical_eids,etype='reverse')
+                    # graph.remove_edges(noncritical_eids,etype='reverse')
                     # for j, po in enumerate(POs):
                     #     po_name = graph_info['nodes_name'][po]
                     #     PI_prob = PIs_prob[j]
@@ -597,8 +606,8 @@ class TimeConv(nn.Module):
                     # cur_PIs_dst = cur_PIs_dst[mask].detach().cpu().numpy().tolist()
                     # cur_PIs_prob = PIs_prob[POname2idx['do_10[2]']][mask].detach().cpu().numpy().tolist()
                     # cur_PIs_prob = [round(v, 3) for v in cur_PIs_prob]
-                    # PIs_idx = nodes_list[PIs_mask][mask]
-                    # PIs_name = [graph_info['nodes_name'][n] for n in PIs_idx]
+                    # PIs_nid = nodes_list[PIs_mask][mask]
+                    # PIs_name = [graph_info['nodes_name'][n] for n in PIs_nid]
                     #
                     # critical_PIs = graph.in_edges(POs[POname2idx['do_10[2]']],etype='pi2po')[0].detach().cpu().numpy().tolist()
                     # critical_PIs_name = [graph_info['nodes_name'][n] for n in critical_PIs]

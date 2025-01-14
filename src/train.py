@@ -36,6 +36,8 @@ with open(os.path.join(options.data_savepath, 'ntype2id.pkl'), 'rb') as f:
 num_gate_types = len(ntype2id_gate)
 num_gate_types -= 3
 num_module_types = len(ntype2id_module)
+# print(num_gate_types,num_module_types)
+# # print(ntype2id)
 # print(ntype2id,ntype2id_gate,ntype2id_module)
 # exit()
 
@@ -192,8 +194,10 @@ def inference(model,test_data,test_idx_loader,usage='test',prob_file='',labels_f
                 sampled_data.append(test_data[idx])
                 graphs.append(data['graph'])
                 #print(data['design_name'])
-            # if '00251' not in data['design_name']:
-            #     continue
+
+            if '00251' not in data['design_name']:
+                continue
+
             sampled_graphs = dgl.batch(graphs)
             sampled_graphs = sampled_graphs.to(device)
             graphs_info = {}
@@ -221,8 +225,8 @@ def inference(model,test_data,test_idx_loader,usage='test',prob_file='',labels_f
             # num_cases = 2
             print(data['design_name'])
             for j in range(num_cases):
-                # if j!=10:
-                #     continue
+                if j!=17:
+                    continue
                 # if num_cases==2 and i==0:
                 #     continue
                 po_labels,po_labels_margin, pi_delays = None,None,None
@@ -286,22 +290,23 @@ def inference(model,test_data,test_idx_loader,usage='test',prob_file='',labels_f
                 #new_delay_label_pairs.append((PIs_delay, POs_label, POs_baselabel,pi2po_edges, abnormal_mask))
                 data['delay-label_pairs'][j] = (PIs_delay, POs_label, POs_baselabel,pi2po_edges, abnormal_POs,normal_POs)
 
-            new_dataset.append((graph,data))
-                #mask = cur_POs_criticalprob.squeeze(1) <= 0.05
-                #nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
-                #POs = nodes_list[sampled_graphs.ndata['is_po']==1]
-                #Pos_name = [data['nodes_name'][n] for n in POs]
-                #POs_low = POs[mask]
-                #POs_low_name = [data['nodes_name'][n] for n in POs_low]
-                # print(data['design_name'],j)
-                # print('\t',len(POs),len(POs_low),POs_low_name)
+
+                mask = cur_POs_criticalprob.squeeze(1) <= 0.05
+                nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
+                POs = nodes_list[sampled_graphs.ndata['is_po']==1]
+                Pos_name = [data['nodes_name'][n] for n in POs]
+                POs_low = POs[mask]
+                POs_low_name = [data['nodes_name'][n] for n in POs_low]
+                print(data['design_name'],j)
+                print('\t',len(POs),len(POs_low),POs_low_name)
                 # for po in POs_low_name:
                 #     abnormal_POs[po] = abnormal_POs.get(po,0) + 1
 
-            # print(abnormal_POs)
+            #print(abnormal_POs)
             # print(th.mean(POs_criticalprob))
             # if i>=5:
             #     exit()
+            new_dataset.append((graph, data))
 
         # if options.flag_path_supervise:
         #     with open('new_data_{}2.pkl'.format(usage),'wb') as f:
@@ -315,13 +320,13 @@ def inference(model,test_data,test_idx_loader,usage='test',prob_file='',labels_f
         min_ratio = th.min(ratio)
         max_ratio = th.max(ratio)
 
-        if not os.path.exists(prob_file):
-            with open(prob_file,'wb') as f:
-                pickle.dump(POs_criticalprob.detach().cpu().numpy().tolist(),f)
-        else:
-            with open(prob_file, 'rb') as f:
-                POs_criticalprob = pickle.load(f)
-                POs_criticalprob = th.tensor(POs_criticalprob).to(device)
+        # if not os.path.exists(prob_file):
+        #     with open(prob_file,'wb') as f:
+        #         pickle.dump(POs_criticalprob.detach().cpu().numpy().tolist(),f)
+        # else:
+        #     with open(prob_file, 'rb') as f:
+        #         POs_criticalprob = pickle.load(f)
+        #         POs_criticalprob = th.tensor(POs_criticalprob).to(device)
 
         mask1 = POs_criticalprob.squeeze(1) <= 0.05
         mask2 = POs_criticalprob.squeeze(1) > 0.5
@@ -354,10 +359,10 @@ def inference(model,test_data,test_idx_loader,usage='test',prob_file='',labels_f
             th.abs(labels_hat[th.logical_and(mask3, mask_l)] - labels[th.logical_and(mask3, mask_l)]) /
             labels[th.logical_and(mask3, mask_l)])
         print(temp_r3, temp_mape)
-        with open("labels2.pkl", 'wb') as f:
-            pickle.dump(labels[mask3].detach().cpu(), f)
-        with open("labels2_hat.pkl", 'wb') as f:
-            pickle.dump(labels_hat[mask3].detach().cpu(), f)
+        # with open("labels2.pkl", 'wb') as f:
+        #     pickle.dump(labels[mask3].detach().cpu(), f)
+        # with open("labels2_hat.pkl", 'wb') as f:
+        #     pickle.dump(labels_hat[mask3].detach().cpu(), f)
 
         # x = []
         # y = []
@@ -761,6 +766,7 @@ if __name__ == "__main__":
     seed = random.randint(1, 10000)
     init(seed)
     if options.test_iter:
+        print(options)
         assert options.checkpoint, 'no checkpoint dir specified'
         model_save_path = '../checkpoints/{}/{}.pth'.format(options.checkpoint, options.test_iter)
         assert os.path.exists(model_save_path), 'start_point {} of checkpoint {} does not exist'.\
@@ -787,6 +793,7 @@ if __name__ == "__main__":
         model.flag_train = True
         flag_inference = True
 
+        #if True:
         if options.flag_reverse and not options.flag_path_supervise:
             if options.pi_choice == 0: model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
             model.mlp_out_new = MLP(options.out_dim, options.hidden_dim, 1)
