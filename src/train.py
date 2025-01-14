@@ -46,7 +46,7 @@ if data_path.endswith('/'):
     data_path = data_path[:-1]
 data_file = os.path.join(data_path, 'data.pkl')
 #split_file = os.path.join(data_path, 'split.pkl')
-split_file = os.path.join(os.path.split(data_path)[0], 'split.pkl')
+split_file = os.path.join(os.path.split(data_path)[0], 'split_new.pkl')
 
 with open(data_file, 'rb') as f:
     data_all = pickle.load(f)
