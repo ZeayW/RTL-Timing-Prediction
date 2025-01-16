@@ -559,10 +559,12 @@ def train(model):
         print('Epoch {} ------------------------------------------------------------'.format(epoch+1))
         total_num,total_loss, total_r2 = 0,0.0,0
 
-
+        
         if options.flag_path_supervise:
             optim = th.optim.Adam(
-                itertools.chain(model.attention_vector_g,model.attention_vector_m),
+                itertools.chain([model.attention_vector_g,model.attention_vector_m],
+                                #model.mlp_out.parameters()
+                                ),
                 options.learning_rate, weight_decay=options.weight_decay
             )
             # optim =  th.optim.Adam(
@@ -701,6 +703,7 @@ def train(model):
                     max_ratio = th.max(ratio)
                     path_loss_avg = totoal_path_loss / num_POs
                     #print(data['design_name'],len(total_labels),num_POs)
+                    print(model.attention_vector_g[0].item(),model.attention_vector_m[0].item())
                     print('{}/{} train_loss:{:.3f}, {:.3f}\ttrain_r2:{:.3f}\ttrain_mape:{:.3f}, ratio:{:.2f}-{:.2f}'.format((batch+1)*options.batch_size,num_traindata,train_loss.item(),path_loss_avg,train_r2.item(),train_mape.item(),min_ratio,max_ratio))
 
                 if len(labels_hat) ==0:
