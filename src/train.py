@@ -73,7 +73,11 @@ def load_data(usage,flag_inference=False):
     #print(target_list[:10])
 
     data = [d for i,d in enumerate(data_all) if design_names[i] in target_list]
-    print("------------Loading {}_data #{}-------------".format(usage,len(data)))
+    if usage == 'train':
+        case_range = (1,30)
+    else:
+        case_range = (0, 40)
+    print("------------Loading {}_data #{} {}-------------".format(usage,len(data),case_range))
 
     loaded_data = []
     for  graph,graph_info in data:
@@ -117,10 +121,7 @@ def load_data(usage,flag_inference=False):
 
         graph_info['graph'] = graph
         #graph_info['PI_mask'] = PI_mask
-        if options.quick and usage=='train':
-            graph_info['delay-label_pairs'] = graph_info['delay-label_pairs'][:20]
-        elif options.quick and usage!='train':
-            graph_info['delay-label_pairs'] = graph_info['delay-label_pairs'][:40]
+        graph_info['delay-label_pairs'] = graph_info['delay-label_pairs'][case_range[0]:case_range[1]]
         loaded_data.append(graph_info)
 
     batch_size = options.batch_size
@@ -172,6 +173,43 @@ def init(seed):
     th.cuda.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
+
+def gather_data(sampled_data,idx,flag_path):
+
+    POs_label_all, PIs_delay_all = None, None
+    start_idx = 0
+    new_POs = None
+    new_edges, new_edges_weight = ([], []), []
+    for data in sampled_data:
+        PIs_delay, POs_label, POs_baselabel, pi2po_edges = data['delay-label_pairs'][idx][:4]
+
+        POs_label_all = cat_tensor(POs_label_all, th.tensor(POs_label, dtype=th.float).unsqueeze(-1).to(device))
+        PIs_delay_all = cat_tensor(PIs_delay_all, th.tensor(PIs_delay, dtype=th.float).unsqueeze(-1).to(device))
+
+        graph = data['graph']
+        # collect the new edges from critical PIs to PO
+        if flag_path:
+            new_edges[0].extend([nid + start_idx for nid in pi2po_edges[0]])
+            new_edges[1].extend([nid + start_idx for nid in pi2po_edges[1]])
+            # new_edges_weight.extend(edges_weight)
+
+        if len(data['delay-label_pairs'][idx]) == 6:
+            abnormal_POs, normal_POs = data['delay-label_pairs'][idx][4:]
+            # nodes_list = th.tensor(range(graph.number_of_nodes())).to(device)
+            # POs = nodes_list[graph.ndata['is_po'] == 1]
+            # middle_POs = set(POs.detach().cpu().numpy().tolist()) - set(abnormal_POs.detach().cpu().numpy().tolist()) - set(normal_POs.detach().cpu().numpy().tolist())
+            # middle_POs = th.tensor(list(middle_POs),dtype=th.long).to(device)
+            # middle_POs =  middle_POs + start_idx
+            # print(len(POs),len(abnormal_POs),len(normal_POs),len(middle_POs))
+            # print(abnormal_POs,middle_POs)
+            abnormal_POs = abnormal_POs + start_idx
+            normal_POs = normal_POs + start_idx
+            new_POs = cat_tensor(new_POs, abnormal_POs)
+
+        start_idx += graph.number_of_nodes()
+
+    return POs_label_all, PIs_delay_all, new_edges, new_edges_weight, new_POs
+
 
 def inference(model,test_data,test_idx_loader,usage='test',prob_file='',labels_file=''):
 
@@ -443,53 +481,10 @@ def test(model,test_data,test_idx_loader):
                     sampled_graphs.ndata['hp'][po][k] = 1
                     sampled_graphs.ndata['hd'][po][k] = 0
 
-            # num_cases = 2
-            # print(data['design_name'])
-            flag_separate = False
-
-
             for j in range(num_cases):
-                # if num_cases==2 and i==0:
-                #     continue
-                start_idx = 0
-                new_POs = None
-                po_labels,po_labels_margin, pi_delays = None,None,None
-                for data in sampled_data:
-                    if options.target_residual:
-                        PIs_delay,POs_baselabel, POs_label, pi2po_edges = data['delay-label_pairs'][j][:4]
-                    else:
-                        PIs_delay, POs_label, POs_baselabel,pi2po_edges  = data['delay-label_pairs'][j][:4]
+                POs_label, PIs_delay, _, _, new_POs = gather_data(sampled_data,j,False)
 
-                    graph = data['graph']
-                    num_nodes = graph.number_of_nodes()
-                    if len(data['delay-label_pairs'][j])==6:
-                        flag_separate = True
-                        abnormal_POs,normal_POs = data['delay-label_pairs'][j][4:]
-
-                        # nodes_list = th.tensor(range(graph.number_of_nodes())).to(device)
-                        # POs = nodes_list[graph.ndata['is_po'] == 1]
-                        # middle_POs = set(POs.detach().cpu().numpy().tolist()) - set(abnormal_POs.detach().cpu().numpy().tolist()) - set(normal_POs.detach().cpu().numpy().tolist())
-                        # middle_POs = th.tensor(list(middle_POs),dtype=th.long).to(device)
-                        # middle_POs =  middle_POs + start_idx
-                        #print(len(POs),len(abnormal_POs),len(normal_POs),len(middle_POs))
-                        #print(abnormal_POs,middle_POs)
-                        abnormal_POs = abnormal_POs + start_idx
-                        normal_POs = normal_POs + start_idx
-                        start_idx += num_nodes
-                        new_POs = cat_tensor(new_POs,normal_POs)
-
-
-                    cur_po_labels =  th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-                    cur_po_labels[graph.ndata['is_po'] == 1] = th.tensor(POs_label, dtype=th.float).unsqueeze(-1)
-                    # cur_po_labels_margin = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-                    # cur_po_labels_margin[graph.ndata['is_po'] == 1] = th.tensor(POs_baselabel, dtype=th.float).unsqueeze(-1)
-                    cur_pi_delays = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-                    cur_pi_delays[graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay, dtype=th.float).unsqueeze(1)
-
-                    po_labels = cat_tensor(po_labels,cur_po_labels)
-                    pi_delays = cat_tensor(pi_delays,cur_pi_delays)
-
-                if flag_separate:
+                if new_POs is not None:
                     new_po_mask = th.zeros((sampled_graphs.number_of_nodes(),1),dtype=th.float)
                     new_po_mask[new_POs] = 1
                     new_po_mask = new_po_mask.squeeze(1).to(device)
@@ -499,16 +494,17 @@ def test(model,test_data,test_idx_loader):
                     sampled_graphs.ndata['is_po'] = new_po_mask
                     graphs_info['POs_mask'] = (sampled_graphs.ndata['is_po'] == 1).squeeze(-1).to(device)
                     graphs_info['POs'] = new_POs.detach().cpu().numpy().tolist()
-                sampled_graphs.ndata['label'] = po_labels.to(device)
-                sampled_graphs.ndata['delay'] = pi_delays.to(device)
-                sampled_graphs.ndata['input_delay'] = pi_delays.to(device)
 
-                cur_labels = sampled_graphs.ndata['label'][graphs_info['POs_mask']].to(device)
+                graphs_info['label'] = POs_label
+                sampled_graphs.ndata['delay'] = th.zeros((sampled_graphs.number_of_nodes(), 1), dtype=th.float).to(device)
+                sampled_graphs.ndata['delay'][sampled_graphs.ndata['is_pi']==1] = PIs_delay
+                sampled_graphs.ndata['input_delay'] = th.zeros((sampled_graphs.number_of_nodes(), 1), dtype=th.float).to(device)
+                sampled_graphs.ndata['input_delay'][sampled_graphs.ndata['is_pi'] == 1] = PIs_delay
 
                 cur_labels_hat, path_loss,_ = model(sampled_graphs, graphs_info)
 
                 labels_hat = cat_tensor(labels_hat,cur_labels_hat)
-                labels = cat_tensor(labels,cur_labels)
+                labels = cat_tensor(labels,POs_label)
 
         # with open("labels2.pkl",'wb') as f:
         #     pickle.dump(labels.detach().cpu(),f)
@@ -634,73 +630,36 @@ def train(model):
             totoal_path_loss = 0
             total_labels = None
             total_labels_hat = None
-            flag_separate = False
             for i in range(num_cases):
-                po_labels, pi_delays = None,None
-                start_idx = 0
-                new_edges,new_edges_weight = ([],[]),[]
-                new_POs = None
-                for data in sampled_data:
-                    if options.target_residual:
-                        PIs_delay, _, POs_label,pi2po_edges = data['delay-label_pairs'][i][:4]
-                    else:
-                        PIs_delay, POs_label, _,pi2po_edges = data['delay-label_pairs'][i][:4]
-
-                    graph = data['graph']
-
-                    if len(data['delay-label_pairs'][i])==6:
-                        flag_separate = True
-                        abnormal_POs,normal_POs = data['delay-label_pairs'][i][4:]
-                        abnormal_POs = abnormal_POs + start_idx
-                        normal_POs = normal_POs + start_idx
-                        new_POs = cat_tensor(new_POs,normal_POs)
-
-                    if options.flag_path_supervise:
-                        new_edges[0].extend([nid+start_idx for nid in pi2po_edges[0]])
-                        new_edges[1].extend([nid + start_idx for nid in pi2po_edges[1]])
-                        #new_edges_weight.extend(edges_weight)
-
-                    start_idx += graph.number_of_nodes()
-
-                    cur_po_labels = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-                    cur_po_labels[graph.ndata['is_po'] == 1] = th.tensor(POs_label, dtype=th.float).unsqueeze(-1)
-                    cur_pi_delays = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
-                    cur_pi_delays[graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay, dtype=th.float).unsqueeze(1)
-                    if po_labels is None:
-                        po_labels = cur_po_labels
-                        pi_delays = cur_pi_delays
-                    else:
-                        po_labels = th.cat((po_labels, cur_po_labels), dim=0)
-                        pi_delays = th.cat((pi_delays, cur_pi_delays), dim=0)
+                POs_label, PIs_delay, new_edges, new_edges_weight, new_POs = gather_data(sampled_data, i, options.flag_path_supervise)
 
                 if options.flag_path_supervise:
                     #new_edges_feat = {'prob': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1)}
                     sampled_graphs.add_edges(th.tensor(new_edges[0]).to(device), th.tensor(new_edges[1]).to(device),
                                     etype='pi2po')
-                    #sampled_graphs = add_newEtype(sampled_graphs, 'pi2po', new_edges, {})
-
-
-                # if new_POs is None or len(new_POs) ==0:
-                #     continue
-                if flag_separate:
+                if new_POs is not None:
                     new_po_mask = th.zeros((sampled_graphs.number_of_nodes(), 1), dtype=th.float)
                     new_po_mask[new_POs] = 1
                     new_po_mask = new_po_mask.squeeze(1).to(device)
-
-                    #nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
-                    #shared_po = th.logical_and(sampled_graphs.ndata['is_po']==1, new_po_mask==1)
-                    #print(len(new_POs),len(nodes_list[sampled_graphs.ndata['is_po']==1]),len(nodes_list[shared_po]))
+                    # nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
+                    # shared_po = th.logical_and(sampled_graphs.ndata['is_po']==1, new_po_mask==1)
+                    # print(len(new_POs),len(nodes_list[sampled_graphs.ndata['is_po']==1]),len(nodes_list[shared_po]))
                     sampled_graphs.ndata['is_po'] = new_po_mask
+                    graphs_info['POs'] = new_POs.detach().cpu().numpy().tolist()
+                    POs = new_POs
+
                 graphs_info['POs_mask'] = (sampled_graphs.ndata['is_po'] == 1).squeeze(-1).to(device)
 
-                sampled_graphs.ndata['label'] = po_labels.to(device)
-                sampled_graphs.ndata['delay'] = pi_delays.to(device)
-                sampled_graphs.ndata['input_delay'] = pi_delays.to(device)
+                graphs_info['label'] = POs_label
+                sampled_graphs.ndata['delay'] = th.zeros((sampled_graphs.number_of_nodes(), 1), dtype=th.float).to(
+                    device)
+                sampled_graphs.ndata['delay'][sampled_graphs.ndata['is_pi'] == 1] = PIs_delay
+                sampled_graphs.ndata['input_delay'] = th.zeros((sampled_graphs.number_of_nodes(), 1),
+                                                               dtype=th.float).to(device)
+                sampled_graphs.ndata['input_delay'][sampled_graphs.ndata['is_pi'] == 1] = PIs_delay
+
 
                 if options.flag_reverse:
-                    if flag_separate:
-                        POs = new_POs
-                        graphs_info['POs'] = POs.detach().cpu().numpy().tolist()
                     sampled_graphs.ndata['hd'] = -1000*th.ones((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
                     sampled_graphs.ndata['hp'] = th.zeros((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
                     for j, po in enumerate(POs):
@@ -708,15 +667,14 @@ def train(model):
                         sampled_graphs.ndata['hd'][po][j] = 0
 
                 labels_hat,path_loss,_ = model(sampled_graphs, graphs_info)
-                labels = sampled_graphs.ndata['label'][graphs_info['POs_mask']].to(device)
                 #print(len(labels))
-                total_num += len(labels)
+                total_num += len(POs_label)
                 train_loss = 0
-                train_loss = Loss(labels_hat, labels)
+                train_loss = Loss(labels_hat, POs_label)
 
                 num_POs += len(path_loss)
                 totoal_path_loss += th.sum(path_loss).item()
-                total_labels = cat_tensor(total_labels,labels)
+                total_labels = cat_tensor(total_labels,POs_label)
                 total_labels_hat = cat_tensor(total_labels_hat, labels_hat)
 
                 #print(len(labels),len(path_loss))
@@ -741,7 +699,7 @@ def train(model):
                     #print(data['design_name'],len(total_labels),num_POs)
                     print('{}/{} train_loss:{:.3f}, {:.3f}\ttrain_r2:{:.3f}\ttrain_mape:{:.3f}, ratio:{:.2f}-{:.2f}'.format((batch+1)*options.batch_size,num_traindata,train_loss.item(),path_loss_avg,train_r2.item(),train_mape.item(),min_ratio,max_ratio))
 
-                if len(labels) ==0:
+                if len(labels_hat) ==0:
                     continue
 
                 optim.zero_grad()
@@ -772,7 +730,7 @@ if __name__ == "__main__":
     seed = random.randint(1, 10000)
     init(seed)
     if options.test_iter:
-        print(options)
+
         assert options.checkpoint, 'no checkpoint dir specified'
         model_save_path = '../checkpoints/{}/{}.pth'.format(options.checkpoint, options.test_iter)
         assert os.path.exists(model_save_path), 'start_point {} of checkpoint {} does not exist'.\
@@ -793,7 +751,7 @@ if __name__ == "__main__":
         options.flag_delay_pd = input_options.flag_delay_pd
         options.inv_choice = input_options.inv_choice
 
-        # print(options)
+        print(options)
         # exit()
         model = init_model(options)
         model.flag_train = True
