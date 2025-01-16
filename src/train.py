@@ -74,7 +74,7 @@ def load_data(usage,flag_inference=False):
 
     data = [d for i,d in enumerate(data_all) if design_names[i] in target_list]
     if usage == 'train':
-        case_range = (1,30)
+        case_range = (0,20)
     else:
         case_range = (0, 40)
     print("------------Loading {}_data #{} {}-------------".format(usage,len(data),case_range))
@@ -562,8 +562,12 @@ def train(model):
 
         if options.flag_path_supervise:
             optim = th.optim.Adam(
-                model.parameters(), options.learning_rate, weight_decay=options.weight_decay
+                itertools.chain(model.attention_vector_g,model.attention_vector_m),
+                options.learning_rate, weight_decay=options.weight_decay
             )
+            # optim =  th.optim.Adam(
+            #     model.parameters(), options.learning_rate, weight_decay=options.weight_decay
+            # )
         elif not options.flag_reverse:
             optim = th.optim.Adam(
                 model.parameters(), options.learning_rate, weight_decay=options.weight_decay
