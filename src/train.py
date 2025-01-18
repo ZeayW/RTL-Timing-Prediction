@@ -559,15 +559,15 @@ def train(model):
 
 
         if options.flag_path_supervise:
-            optim = th.optim.Adam(
-                itertools.chain([model.attention_vector_g,model.attention_vector_m],
-                                #model.mlp_out.parameters()
-                                ),
-                options.learning_rate, weight_decay=options.weight_decay
-            )
-            # optim =  th.optim.Adam(
-            #     model.parameters(), options.learning_rate, weight_decay=options.weight_decay
+            # optim = th.optim.Adam(
+            #     itertools.chain([model.attention_vector_g,model.attention_vector_m],
+            #                     #model.mlp_out.parameters()
+            #                     ),
+            #     options.learning_rate, weight_decay=options.weight_decay
             # )
+            optim =  th.optim.Adam(
+                model.parameters(), options.learning_rate, weight_decay=options.weight_decay
+            )
         elif not options.flag_reverse:
             optim = th.optim.Adam(
                 model.parameters(), options.learning_rate, weight_decay=options.weight_decay
@@ -683,7 +683,7 @@ def train(model):
 
                 if options.flag_path_supervise:
                     #print(train_loss.item(),path_loss.item())
-                    path_loss = th.mean(prob_sum-1*prob_dev)
+                    path_loss = th.mean(prob_sum-0.5*prob_dev)
 
                     train_loss += -path_loss
                     #train_loss = th.exp(1-path_loss)*train_loss

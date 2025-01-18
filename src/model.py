@@ -407,8 +407,8 @@ class TimeConv(nn.Module):
     def reduce_func_loss(self,nodes):
         prob_sum = th.sum(nodes.mailbox['ml'],dim=1)
         prob_mean = th.mean(nodes.mailbox['ml'], dim=1).unsqueeze(1)
-        prob_dev = th.sum(th.abs(nodes.mailbox['ml']-prob_mean),dim=1)
-        #prob_dev = th.sum(th.pow(nodes.mailbox['ml'] - prob_mean,2), dim=1)
+        #prob_dev = th.sum(th.abs(nodes.mailbox['ml']-prob_mean),dim=1)
+        prob_dev = th.sum(th.pow(nodes.mailbox['ml'] - prob_mean,2), dim=1)
 
 
         return {'prob_sum':prob_sum,'prob_dev':prob_dev}
