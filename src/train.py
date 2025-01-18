@@ -28,7 +28,7 @@ options = get_options()
 device = th.device("cuda:" + str(options.gpu) if th.cuda.is_available() else "cpu")
 R2_score = R2Score().to(device)
 Loss = nn.MSELoss()
-Loss = nn.L1Loss()
+#Loss = nn.L1Loss()
 
 
 with open(os.path.join(options.data_savepath, 'ntype2id.pkl'), 'rb') as f:
@@ -239,8 +239,8 @@ def inference(model,test_data,test_idx_loader,usage='test',prob_file='',labels_f
                 graphs.append(data['graph'])
                 #print(data['design_name'])
 
-            if '00251' not in data['design_name']:
-                continue
+            # if '00251' not in data['design_name']:
+            #     continue
 
             sampled_graphs = dgl.batch(graphs)
             sampled_graphs = sampled_graphs.to(device)
@@ -269,9 +269,6 @@ def inference(model,test_data,test_idx_loader,usage='test',prob_file='',labels_f
             # num_cases = 2
             print(data['design_name'])
             for j in range(num_cases):
-                if j!=17:
-                    continue
-                # if num_cases==2 and i==0:
                 #     continue
                 po_labels,po_labels_margin, pi_delays = None,None,None
                 start_idx = 0
@@ -335,14 +332,14 @@ def inference(model,test_data,test_idx_loader,usage='test',prob_file='',labels_f
                 data['delay-label_pairs'][j] = (PIs_delay, POs_label, POs_baselabel,pi2po_edges, abnormal_POs,normal_POs)
 
 
-                mask = cur_POs_criticalprob.squeeze(1) <= 0.05
-                nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
-                POs = nodes_list[sampled_graphs.ndata['is_po']==1]
-                Pos_name = [data['nodes_name'][n] for n in POs]
-                POs_low = POs[mask]
-                POs_low_name = [data['nodes_name'][n] for n in POs_low]
-                print(data['design_name'],j)
-                print('\t',len(POs),len(POs_low),POs_low_name)
+                #mask = cur_POs_criticalprob.squeeze(1) <= 0.05
+                #nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
+                #POs = nodes_list[sampled_graphs.ndata['is_po']==1]
+                # Pos_name = [data['nodes_name'][n] for n in POs]
+                # POs_low = POs[mask]
+                # POs_low_name = [data['nodes_name'][n] for n in POs_low]
+                #print(data['design_name'],j)
+                #print('\t',len(POs),len(POs_low),POs_low_name)
                 # for po in POs_low_name:
                 #     abnormal_POs[po] = abnormal_POs.get(po,0) + 1
 
@@ -371,43 +368,44 @@ def inference(model,test_data,test_idx_loader,usage='test',prob_file='',labels_f
         #     with open(prob_file, 'rb') as f:
         #         POs_criticalprob = pickle.load(f)
         #         POs_criticalprob = th.tensor(POs_criticalprob).to(device)
+        if POs_criticalprob is not None:
+            mask1 = POs_criticalprob.squeeze(1) <= 0.05
+            mask2 = POs_criticalprob.squeeze(1) > 0.5
+            mask3 = th.logical_and(POs_criticalprob.squeeze(1) > 0.05,POs_criticalprob.squeeze(1) <=0.5)
+            mask_l = labels.squeeze(1) != 0
 
-        mask1 = POs_criticalprob.squeeze(1) <= 0.05
-        mask2 = POs_criticalprob.squeeze(1) > 0.5
-        mask3 = th.logical_and(POs_criticalprob.squeeze(1) > 0.05,POs_criticalprob.squeeze(1) <=0.5)
-        mask_l = labels.squeeze(1) != 0
+            # if not os.path.exists(labels_file):
+            #     with open(labels_file, 'wb') as f:
+            #         pickle.dump(labels_hat[mask2].detach().cpu().numpy().tolist(), f)
+            # else:
+            #     with open(labels_file, 'rb') as f:
+            #         labels_hat_high = pickle.load(f)
+            #         labels_hat_high = th.tensor(labels_hat_high).to(device)
+            #         labels_hat[mask2] = labels_hat_high
+            print(th.mean(POs_criticalprob))
+            print(len(labels[mask1]) / len(labels), len(labels[mask2]) / len(labels))
+            temp_r2 = R2_score(labels_hat[mask1], labels[mask1]).item()
+            temp_mape = th.mean(
+                th.abs(labels_hat[th.logical_and(mask1, mask_l)] - labels[th.logical_and(mask1, mask_l)]) / labels[
+                    th.logical_and(mask1, mask_l)])
+            print(temp_r2, temp_mape)
+            temp_r2 = R2_score(labels_hat[mask2], labels[mask2]).item()
+            temp_mape = th.mean(
+                th.abs(labels_hat[th.logical_and(mask2, mask_l)] - labels[th.logical_and(mask2, mask_l)]) /
+                labels[th.logical_and(mask2, mask_l)])
+            print(temp_r2, temp_mape)
 
-        # if not os.path.exists(labels_file):
-        #     with open(labels_file, 'wb') as f:
-        #         pickle.dump(labels_hat[mask2].detach().cpu().numpy().tolist(), f)
-        # else:
-        #     with open(labels_file, 'rb') as f:
-        #         labels_hat_high = pickle.load(f)
-        #         labels_hat_high = th.tensor(labels_hat_high).to(device)
-        #         labels_hat[mask2] = labels_hat_high
-        print(th.mean(POs_criticalprob))
-        print(len(labels[mask1]) / len(labels), len(labels[mask2]) / len(labels))
-        temp_r2 = R2_score(labels_hat[mask1], labels[mask1]).item()
-        temp_mape = th.mean(
-            th.abs(labels_hat[th.logical_and(mask1, mask_l)] - labels[th.logical_and(mask1, mask_l)]) / labels[
-                th.logical_and(mask1, mask_l)])
-        print(temp_r2, temp_mape)
-        temp_r2 = R2_score(labels_hat[mask2], labels[mask2]).item()
-        temp_mape = th.mean(
-            th.abs(labels_hat[th.logical_and(mask2, mask_l)] - labels[th.logical_and(mask2, mask_l)]) /
-            labels[th.logical_and(mask2, mask_l)])
-        print(temp_r2, temp_mape)
-
-        temp_r3 = R2_score(labels_hat[mask3], labels[mask3]).item()
-        temp_mape = th.mean(
-            th.abs(labels_hat[th.logical_and(mask3, mask_l)] - labels[th.logical_and(mask3, mask_l)]) /
-            labels[th.logical_and(mask3, mask_l)])
-        print(temp_r3, temp_mape)
-        # with open("labels2.pkl", 'wb') as f:
-        #     pickle.dump(labels[mask3].detach().cpu(), f)
-        # with open("labels2_hat.pkl", 'wb') as f:
-        #     pickle.dump(labels_hat[mask3].detach().cpu(), f)
-
+            temp_r3 = R2_score(labels_hat[mask3], labels[mask3]).item()
+            temp_mape = th.mean(
+                th.abs(labels_hat[th.logical_and(mask3, mask_l)] - labels[th.logical_and(mask3, mask_l)]) /
+                labels[th.logical_and(mask3, mask_l)])
+            print(temp_r3, temp_mape)
+        # with open("labels_new.pkl", 'wb') as f:
+        #     pickle.dump(labels.detach().cpu(), f)
+        # with open("labels_hat_new2.pkl", 'wb') as f:
+        #     pickle.dump(labels_hat.detach().cpu(), f)
+        with open('prob_max2.pkl', 'wb') as f:
+            pickle.dump(POs_criticalprob.detach().cpu(),f)
         # x = []
         # y = []
         # indexs = list(range(9,40))
@@ -501,7 +499,7 @@ def test(model,test_data,test_idx_loader):
                 sampled_graphs.ndata['input_delay'] = th.zeros((sampled_graphs.number_of_nodes(), 1), dtype=th.float).to(device)
                 sampled_graphs.ndata['input_delay'][sampled_graphs.ndata['is_pi'] == 1] = PIs_delay
 
-                cur_labels_hat, path_loss,_ = model(sampled_graphs, graphs_info)
+                cur_labels_hat, prob_sum,prob_dev,_ = model(sampled_graphs, graphs_info)
 
                 labels_hat = cat_tensor(labels_hat,cur_labels_hat)
                 labels = cat_tensor(labels,POs_label)
@@ -559,7 +557,7 @@ def train(model):
         print('Epoch {} ------------------------------------------------------------'.format(epoch+1))
         total_num,total_loss, total_r2 = 0,0.0,0
 
-        
+
         if options.flag_path_supervise:
             optim = th.optim.Adam(
                 itertools.chain([model.attention_vector_g,model.attention_vector_m],
@@ -608,7 +606,7 @@ def train(model):
             for idx in idxs:
                 data = train_data[idx]
                 num_cases = min(num_cases,len(data['delay-label_pairs']))
-                shuffle(train_data[idx]['delay-label_pairs'])
+                #shuffle(train_data[idx]['delay-label_pairs'])
                 sampled_data.append(train_data[idx])
                 graphs.append(data['graph'])
             sampled_graphs = dgl.batch(graphs)
@@ -633,7 +631,7 @@ def train(model):
                 #     sampled_graphs.ndata['hd'][po][i] = 0
 
             num_POs = 0
-            totoal_path_loss = 0
+            totoal_path_loss,total_prob = 0,0
             total_labels = None
             total_labels_hat = None
             for i in range(num_cases):
@@ -672,28 +670,32 @@ def train(model):
                         sampled_graphs.ndata['hp'][po][j] = 1
                         sampled_graphs.ndata['hd'][po][j] = 0
 
-                labels_hat,path_loss,_ = model(sampled_graphs, graphs_info)
+                labels_hat,prob_sum,prob_dev,_ = model(sampled_graphs, graphs_info)
                 #print(len(labels))
                 total_num += len(POs_label)
                 train_loss = 0
                 train_loss = Loss(labels_hat, POs_label)
 
-                num_POs += len(path_loss)
-                totoal_path_loss += th.sum(path_loss).item()
-                total_labels = cat_tensor(total_labels,POs_label)
-                total_labels_hat = cat_tensor(total_labels_hat, labels_hat)
 
                 #print(len(labels),len(path_loss))
-                path_loss = th.mean(path_loss)
+                path_loss =th.tensor(0)
 
 
                 if options.flag_path_supervise:
                     #print(train_loss.item(),path_loss.item())
+                    path_loss = th.mean(prob_sum-1*prob_dev)
+
                     train_loss += -path_loss
                     #train_loss = th.exp(1-path_loss)*train_loss
                     #train_loss = th.mean(th.exp(1 - path_loss) * th.abs(labels_hat-labels))
                     pass
 
+                num_POs += len(prob_sum)
+
+                totoal_path_loss += path_loss.item()*len(prob_sum)
+                total_prob += th.sum(prob_sum)
+                total_labels = cat_tensor(total_labels, POs_label)
+                total_labels_hat = cat_tensor(total_labels_hat, labels_hat)
 
                 if i==num_cases-1:
                     train_r2 = R2_score(total_labels_hat, total_labels).to(device)
@@ -702,9 +704,10 @@ def train(model):
                     min_ratio = th.min(ratio)
                     max_ratio = th.max(ratio)
                     path_loss_avg = totoal_path_loss / num_POs
+                    prob_avg = total_prob / num_POs
                     #print(data['design_name'],len(total_labels),num_POs)
                     print(model.attention_vector_g[0].item(),model.attention_vector_m[0].item())
-                    print('{}/{} train_loss:{:.3f}, {:.3f}\ttrain_r2:{:.3f}\ttrain_mape:{:.3f}, ratio:{:.2f}-{:.2f}'.format((batch+1)*options.batch_size,num_traindata,train_loss.item(),path_loss_avg,train_r2.item(),train_mape.item(),min_ratio,max_ratio))
+                    print('{}/{} train_loss:{:.3f}, {:.3f} {:.3f}\ttrain_r2:{:.3f}\ttrain_mape:{:.3f}, ratio:{:.2f}-{:.2f}'.format((batch+1)*options.batch_size,num_traindata,train_loss.item(),path_loss_avg,prob_avg,train_r2.item(),train_mape.item(),min_ratio,max_ratio))
 
                 if len(labels_hat) ==0:
                     continue
@@ -757,11 +760,14 @@ if __name__ == "__main__":
         options.quick = input_options.quick
         options.flag_delay_pd = input_options.flag_delay_pd
         options.inv_choice = input_options.inv_choice
+        options.remove01 = input_options.remove01
 
         print(options)
         # exit()
         model = init_model(options)
         model.flag_train = True
+        model.flag_reverse = options.flag_reverse
+        model.flag_path_supervise = options.flag_path_supervise
         flag_inference = True
 
         #if True:
@@ -780,9 +786,9 @@ if __name__ == "__main__":
 
             test_data,test_idx_loader = load_data(usage,flag_inference)
 
-            test_loss, test_r2, test_mape, test_min_ratio, test_max_ratio = test(model, test_data,test_idx_loader)
+            #test_loss, test_r2, test_mape, test_min_ratio, test_max_ratio = test(model, test_data,test_idx_loader)
 
-            #test_loss, test_r2,test_mape,test_min_ratio,test_max_ratio = inference(model, test_data,test_idx_loader,usage,prob_file,labels_file)
+            test_loss, test_r2,test_mape,test_min_ratio,test_max_ratio = inference(model, test_data,test_idx_loader,usage,prob_file,labels_file)
             print(
                 '\ttest: loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(test_loss, test_r2,
                                                                                                          test_mape,test_min_ratio,test_max_ratio))

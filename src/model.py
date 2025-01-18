@@ -404,6 +404,15 @@ class TimeConv(nn.Module):
 
         return {'h':h}
 
+    def reduce_func_loss(self,nodes):
+        prob_sum = th.sum(nodes.mailbox['ml'],dim=1)
+        prob_mean = th.mean(nodes.mailbox['ml'], dim=1).unsqueeze(1)
+        prob_dev = th.sum(th.abs(nodes.mailbox['ml']-prob_mean),dim=1)
+        #prob_dev = th.sum(th.pow(nodes.mailbox['ml'] - prob_mean,2), dim=1)
+
+
+        return {'prob_sum':prob_sum,'prob_dev':prob_dev}
+
     def prop_delay(self,graph,graph_info):
         topo = graph_info['topo']
         for i, nodes in enumerate(topo[1:]):
@@ -429,6 +438,7 @@ class TimeConv(nn.Module):
             return graph.ndata['hp'], graph.ndata['hd']
 
     def forward(self, graph,graph_info):
+
         topo = graph_info['topo']
         PO_mask = graph_info['POs_mask']
         PO_feat = graph_info['POs_feat']
@@ -513,9 +523,12 @@ class TimeConv(nn.Module):
 
             rst = self.mlp_out(h)
 
-            if not self.flag_train and self.flag_path_supervise:
-                return rst,th.tensor([0.0]),None
 
+
+            if not self.flag_train and self.flag_path_supervise:
+                return rst,th.tensor([0.0]),th.tensor([0.0]),None
+
+            #print("aaaa")
 
             if self.flag_reverse:
                 critical_po_mask = rst.squeeze(1) > 10
@@ -530,20 +543,23 @@ class TimeConv(nn.Module):
                     graph.ndata['hp'] = nodes_prob
                     graph.ndata['id'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.int64).to(device)
                     graph.ndata['id'][POs] = th.tensor(range(len(POs)), dtype=th.int64).unsqueeze(-1).to(device)
-                    graph.pull(POs, self.message_func_loss, fn.max('ml', 'loss'), etype='pi2po')
+                    #print(graph.number_of_edges(etype='pi2po'),len(POs))
+                    graph.pull(POs, self.message_func_loss, self.reduce_func_loss, etype='pi2po')
                     POs_criticalprob = None
-                    graph.pull(POs, self.message_func_prob, fn.max('mp', 'prob'), etype='pi2po')
+                    graph.pull(POs, self.message_func_prob, fn.sum('mp', 'prob'), etype='pi2po')
                     POs_criticalprob = graph.ndata['prob'][POs]
 
                     # graph.pull(POs, fn.copy_src('delay','md'), fn.mean('md', 'di'), etype='pi2po')
                     #
                     # nodes_dst += graph.ndata['delay']
-                    # PIs_mask = graph.ndata['is_pi'] == 1
+                    PIs_mask = graph.ndata['is_pi'] == 1
                     # PIs_dst = th.transpose(nodes_dst[PIs_mask], 0, 1)
                     # POs_maxDst_idx = th.argmax(PIs_dst, dim=1)
                     # POs_delay_d = graph.ndata['delay'][POs_maxDst_idx]
                     #
-                    # PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
+                    PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
+                    POs_maxProb = th.max(PIs_prob, dim=1).values.unsqueeze(1)
+                    POs_criticalprob = POs_maxProb
                     # POs_maxProb_idx = th.argmax(PIs_prob, dim=1)
                     # POs_delay_p = graph.ndata['delay'][POs_maxProb_idx]
                     #
@@ -637,16 +653,12 @@ class TimeConv(nn.Module):
 
                     # exit()
                     #path_loss = th.mean(graph.ndata['loss'][POs])
-                    path_loss = graph.ndata['loss'][POs]
-                    #POs_delay_m = graph.ndata['di'][POs]
+                    prob_sum = graph.ndata['prob_sum'][POs]
+                    prob_dev = graph.ndata['prob_dev'][POs]
 
-                    if th.isnan(path_loss).any():
-                        # print(nodes_prob)
-                        print(len(nodes_prob), len(nodes_prob[th.isnan(nodes_prob)]))
-                        print(len(graph.ndata['loss'][POs][th.isnan(graph.ndata['loss'][POs])]))
-                        # print(graph.ndata['loss'][POs])
 
-                    return rst, path_loss,POs_criticalprob
+
+                    return rst, prob_sum,prob_dev,POs_criticalprob
                     #return rst, path_loss,POs_delay_d,POs_delay_p,POs_delay_m,POs_delay_w,POs_criticalprob
 
 
@@ -732,7 +744,7 @@ class TimeConv(nn.Module):
             #print('g',num_gate,th.sum(graph.edges['intra_gate'].data['weight']))
             #print('m',num_module,th.sum(graph.edges['intra_module'].data['weight']))
 
-            return rst,th.tensor([0.0]),None
+            return rst,th.tensor([0.0]),th.tensor([0.0]),None
 
 class GraphBackProp(nn.Module):
 
