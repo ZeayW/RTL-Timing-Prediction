@@ -407,8 +407,8 @@ class TimeConv(nn.Module):
     def reduce_func_loss(self,nodes):
         prob_sum = th.sum(nodes.mailbox['ml'],dim=1)
         prob_mean = th.mean(nodes.mailbox['ml'], dim=1).unsqueeze(1)
-        #prob_dev = th.sum(th.abs(nodes.mailbox['ml']-prob_mean),dim=1)
-        prob_dev = th.sum(th.pow(nodes.mailbox['ml'] - prob_mean,2), dim=1)
+        prob_dev = th.sum(th.abs(nodes.mailbox['ml']-prob_mean),dim=1)
+        #prob_dev = th.sum(th.pow(nodes.mailbox['ml'] - prob_mean,2), dim=1)
 
 
         return {'prob_sum':prob_sum,'prob_dev':prob_dev}
@@ -557,9 +557,9 @@ class TimeConv(nn.Module):
                     # POs_maxDst_idx = th.argmax(PIs_dst, dim=1)
                     # POs_delay_d = graph.ndata['delay'][POs_maxDst_idx]
                     #
-                    PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
-                    POs_maxProb = th.max(PIs_prob, dim=1).values.unsqueeze(1)
-                    POs_criticalprob = POs_maxProb
+                    #PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
+                    #POs_maxProb = th.max(PIs_prob, dim=1).values.unsqueeze(1)
+                    #POs_criticalprob = POs_maxProb
                     # POs_maxProb_idx = th.argmax(PIs_prob, dim=1)
                     # POs_delay_p = graph.ndata['delay'][POs_maxProb_idx]
                     #

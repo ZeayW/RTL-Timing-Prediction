@@ -28,7 +28,7 @@ options = get_options()
 device = th.device("cuda:" + str(options.gpu) if th.cuda.is_available() else "cpu")
 R2_score = R2Score().to(device)
 Loss = nn.MSELoss()
-#Loss = nn.L1Loss()
+Loss = nn.L1Loss()
 
 
 with open(os.path.join(options.data_savepath, 'ntype2id.pkl'), 'rb') as f:
@@ -308,7 +308,7 @@ def inference(model,test_data,test_idx_loader,usage='test',prob_file='',labels_f
 
                 cur_labels = sampled_graphs.ndata['label'][graphs_info['POs_mask']].to(device)
 
-                cur_labels_hat, path_loss,cur_POs_criticalprob = model(sampled_graphs, graphs_info)
+                cur_labels_hat, prob_sum,prob_dev,cur_POs_criticalprob = model(sampled_graphs, graphs_info)
 
                 if options.flag_path_supervise:
                     sampled_graphs.remove_edges(sampled_graphs.edges('all', etype='pi2po')[2], etype='pi2po')
@@ -554,6 +554,12 @@ def train(model):
     num_traindata = len(train_data)
     for epoch in range(options.num_epoch):
         model.flag_train = True
+        flag_reverse = options.flag_reverse and epoch%2==0
+        flag_path = options.flag_path_supervise and epoch % 2 == 0
+        model.flag_reverse = flag_reverse
+        model.flag_path_supervise = flag_path
+        #train_idx_loader.batch_size = options.batch_size if epoch%2==0 else options.batch_size*2
+
         print('Epoch {} ------------------------------------------------------------'.format(epoch+1))
         total_num,total_loss, total_r2 = 0,0.0,0
 
@@ -618,7 +624,7 @@ def train(model):
             POs_topolevel = sampled_graphs.ndata['PO_feat'][sampled_graphs.ndata['is_po'] == 1].to(device)
             graphs_info['POs_feat'] = POs_topolevel
             graphs_info['topo'] = [l.to(device) for l in topo_levels]
-            if options.flag_reverse:
+            if flag_reverse:
                 topo_r = gen_topo(sampled_graphs, flag_reverse=True)
                 graphs_info['topo_r'] = [l.to(device) for l in topo_r]
                 nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
@@ -635,6 +641,7 @@ def train(model):
             total_labels = None
             total_labels_hat = None
             for i in range(num_cases):
+                torch.cuda.empty_cache()
                 POs_label, PIs_delay, new_edges, new_edges_weight, new_POs = gather_data(sampled_data, i, options.flag_path_supervise)
 
                 if options.flag_path_supervise:
@@ -663,7 +670,7 @@ def train(model):
                 sampled_graphs.ndata['input_delay'][sampled_graphs.ndata['is_pi'] == 1] = PIs_delay
 
 
-                if options.flag_reverse:
+                if flag_reverse:
                     sampled_graphs.ndata['hd'] = -1000*th.ones((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
                     sampled_graphs.ndata['hp'] = th.zeros((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
                     for j, po in enumerate(POs):
@@ -681,13 +688,12 @@ def train(model):
                 path_loss =th.tensor(0)
 
 
-                if options.flag_path_supervise:
-                    #print(train_loss.item(),path_loss.item())
-                    path_loss = th.mean(prob_sum-0.5*prob_dev)
-
+                if flag_path:
+                    path_loss = th.mean(prob_sum-1*prob_dev)
+                    #path_loss = th.mean(prob_sum)*th.exp(1-th.mean(prob_dev))
                     train_loss += -path_loss
                     #train_loss = th.exp(1-path_loss)*train_loss
-                    #train_loss = th.mean(th.exp(1 - path_loss) * th.abs(labels_hat-labels))
+                    #train_loss = th.mean(th.exp(1 - path_loss) * th.abs(labels_hat-POs_label))
                     pass
 
                 num_POs += len(prob_sum)
@@ -717,7 +723,7 @@ def train(model):
                 optim.step()
                 torch.cuda.empty_cache()
 
-                if options.flag_path_supervise:
+                if flag_path:
                     sampled_graphs.remove_edges(sampled_graphs.edges('all',etype='pi2po')[2],etype='pi2po')
 
         torch.cuda.empty_cache()
