@@ -674,6 +674,16 @@ class TimeConv(nn.Module):
 
                 #PIs_mask = th.logical_or(graph.ndata['is_pi'] == 1,(graph.ndata['value'][:,[2]]==0).squeeze(1))
 
+                nodes_attn = th.softmax(th.transpose(nodes_prob,0,1),dim=1)
+
+                h_gobal = th.matmul(th.transpose(nodes_prob,0,1),graph.ndata['h'])
+                h = th.cat((rst,h_gobal),dim=1)
+                rst = self.mlp_out_new(h)
+                rst =rst
+                return  rst,th.tensor([0.0]),th.tensor([0.0]),None
+
+
+
                 PIs_mask = graph.ndata['is_pi'] == 1
                 #PIs = nodes_list[PIs_mask].detach().cpu().numpy().tolist()
                 PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)

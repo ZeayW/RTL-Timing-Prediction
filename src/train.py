@@ -554,10 +554,17 @@ def train(model):
     num_traindata = len(train_data)
     for epoch in range(options.num_epoch):
         model.flag_train = True
-        flag_reverse = options.flag_reverse and epoch%2==0
-        flag_path = options.flag_path_supervise and epoch % 2 == 0
+        flag_reverse = options.flag_reverse
+        flag_path = options.flag_path_supervise
+        # flag_reverse = options.flag_reverse and epoch%3==0
+        # flag_path = options.flag_path_supervise and epoch % 3 == 0
         model.flag_reverse = flag_reverse
         model.flag_path_supervise = flag_path
+        Loss = nn.MSELoss()
+        Loss = nn.L1Loss()
+        #Loss = nn.MSELoss() if epoch%3==0 else nn.L1Loss()
+
+
         #train_idx_loader.batch_size = options.batch_size if epoch%2==0 else options.batch_size*2
 
         print('Epoch {} ------------------------------------------------------------'.format(epoch+1))
@@ -593,10 +600,16 @@ def train(model):
 
         elif options.pi_choice==1:
             optim = th.optim.Adam(
+
                 model.mlp_out.parameters(),
                 options.learning_rate, weight_decay=options.weight_decay
             )
-
+        elif options.pi_choice==2:
+            optim = th.optim.Adam(
+                #model.parameters(),
+                model.mlp_out_new.parameters(),
+                options.learning_rate, weight_decay=options.weight_decay
+            )
         else:
             assert False
 
@@ -812,13 +825,14 @@ if __name__ == "__main__":
             model = init_model(options)
             # if options.pretrain_dir is not None:
             #     model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
+            if options.pretrain_dir is not None:
+                model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
 
             if options.flag_reverse and not options.flag_path_supervise:
                 if options.pi_choice == 0:
                     model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
-                model.mlp_out_new =  MLP(options.out_dim,options.hidden_dim,1)
-            if options.pretrain_dir is not None:
-                model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
+                model.mlp_out_new =  MLP(options.hidden_dim+1,options.hidden_dim,1)
+
             model = model.to(device)
 
             print('seed:', seed)
