@@ -219,9 +219,9 @@ class TimeConv(nn.Module):
         else:
             h = self.mlp_neigh_gate(nodes.data['neigh']) + self.mlp_self_gate(m_self)
         h[mask] = self.activation(h[mask])
-        if self.flag_reverse or self.flag_path_supervise and self.attn_choice == 1:
+        if (self.flag_reverse or self.flag_path_supervise) and self.attn_choice == 1:
             return {'h': h, 'exp_src_sum': nodes.data['exp_src_sum'], 'exp_src_max': nodes.data['exp_src_max']}
-        elif self.flag_reverse or self.flag_path_supervise and self.attn_choice == 0:
+        elif (self.flag_reverse or self.flag_path_supervise) and self.attn_choice == 0:
             return {'h': h, 'attn_sum': nodes.data['attn_sum'],'attn_max': nodes.data['attn_max']}
         else:
             return {'h': h}
