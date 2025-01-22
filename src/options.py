@@ -3,6 +3,9 @@ import argparse
 
 def get_options(args=None):
     parser = argparse.ArgumentParser()
+    parser.add_argument('--flag_alternate',action='store_true')
+    parser.add_argument('--global_cat_choice', type=int, default=0, help='choose the way to implement the global attention')
+    parser.add_argument('--global_info_choice',  type=int,default=0,help='choose the way to implement the global attention')
     parser.add_argument('--remove01',action='store_true')
     parser.add_argument('--inv_choice',type=int,default=-1)
     parser.add_argument('--quick',action='store_true')

@@ -34,6 +34,8 @@ class TimeConv(nn.Module):
                  infeat_dim1,
                  infeat_dim2,
                  hidden_dim,
+                 global_cat_choice=0,
+                 global_info_choice=0,
                  pi_choice=0,
                  agg_choice=0,
                  attn_choice=1,
@@ -54,6 +56,8 @@ class TimeConv(nn.Module):
                  flag_attn=False):
         super(TimeConv, self).__init__()
 
+        self.global_cat_choice = global_cat_choice
+        self.global_info_choice = global_info_choice
         self.inv_choice = inv_choice
         self.flag_width = flag_width
         self.flag_delay_m = flag_delay_m
@@ -530,13 +534,19 @@ class TimeConv(nn.Module):
 
             #print("aaaa")
 
-            if self.flag_reverse:
+            if self.flag_reverse or self.flag_path_supervise:
                 critical_po_mask = rst.squeeze(1) > 10
                 # if self.flag_filter:
                 #     POs = POs[critical_po_mask]
+                POs_criticalprob = None
                 POs = graph_info['POs']
                 nodes_prob,nodes_dst = self.prop_backward(graph,graph_info)
                 nodes_dst[nodes_dst < -100] = 0
+                # graph.ndata['hp'] = nodes_prob
+                # graph.ndata['id'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.int64).to(device)
+                # graph.ndata['id'][POs] = th.tensor(range(len(POs)), dtype=th.int64).unsqueeze(-1).to(device)
+                # graph.pull(POs, self.message_func_prob, fn.sum('mp', 'prob'), etype='pi2po')
+                # POs_criticalprob = graph.ndata['prob'][POs]
 
                 if self.flag_path_supervise:
 
@@ -674,13 +684,30 @@ class TimeConv(nn.Module):
 
                 #PIs_mask = th.logical_or(graph.ndata['is_pi'] == 1,(graph.ndata['value'][:,[2]]==0).squeeze(1))
 
-                nodes_attn = th.softmax(th.transpose(nodes_prob,0,1),dim=1)
+                #nodes_attn = th.softmax(th.transpose(nodes_prob,0,1),dim=1)
 
-                h_gobal = th.matmul(th.transpose(nodes_prob,0,1),graph.ndata['h'])
-                h = th.cat((rst,h_gobal),dim=1)
+                h_global = th.matmul(th.transpose(nodes_prob,0,1),graph.ndata['h'])
+                if self.global_info_choice == 1:
+                    h_global = h_global - h
+                elif self.global_info_choice == 2:
+                    PIs_mask = graph.ndata['is_pi'] == 1
+                    PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
+                    h_pi = th.matmul(PIs_prob, graph.ndata['delay'][PIs_mask])
+                    h_global =h_global+h_pi
+                elif self.global_info_choice == 3:
+                    PIs_mask = graph.ndata['is_pi'] == 1
+                    PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
+                    h_pi = th.matmul(PIs_prob, graph.ndata['delay'][PIs_mask])
+                    h_global = th.cat((h_global, h_pi), dim=1)
+
+                if self.global_cat_choice == 0:
+                    h = th.cat((rst,h_global),dim=1)
+                elif self.global_cat_choice == 1:
+                    h = th.cat((h,h_global),dim=1)
+
                 rst = self.mlp_out_new(h)
-                rst =rst
-                return  rst,th.tensor([0.0]),th.tensor([0.0]),None
+
+                return  rst,th.tensor([0.0]),th.tensor([0.0]),POs_criticalprob
 
 
 
@@ -732,22 +759,7 @@ class TimeConv(nn.Module):
                 else:
                     assert False
 
-                #rst = self.mlp_out_new(h)
-                #return rst
 
-                if self.flag_filter:
-                    # h_critical = th.cat([h[critical_po_mask], h_pi], dim=1)
-                    # rst[critical_po_mask] = self.mlp_out_new(h_critical)
-                    h_pi[critical_po_mask] = 0
-                    rst = self.mlp_out_new(h)
-                    #rst[critical_po_mask] = h[critical_po_mask] + self.mlp_out_new(h_pi)
-                else:
-                    # h = th.cat([h, h_pi], dim=1)
-                    # rst = self.mlp_out_new(h)
-                    #h_global = th.cat([h_pi, h_module], dim=1)
-                    h_global = h_pi
-                    rst = rst + self.mlp_out_new(h_global)
-                    rst = self.activation(rst)
 
 
 

@@ -129,21 +129,22 @@ def load_data(usage,flag_inference=False):
         batch_size = len(loaded_data)
 
 
-    print(batch_size)
-    drop_last = True if usage == 'train' else False
+    return loaded_data
+
+def get_idx_loader(data,batch_size):
     drop_last = False
-
-    sampler = SubsetRandomSampler(th.arange(len(loaded_data)))
-
-    idx_loader = DataLoader([i for i in range(len(loaded_data))], sampler=sampler, batch_size=batch_size,
-                              drop_last=drop_last)
-    return loaded_data,idx_loader
+    sampler = SubsetRandomSampler(th.arange(len(data)))
+    idx_loader = DataLoader([i for i in range(len(data))], sampler=sampler, batch_size=batch_size,
+                            drop_last=drop_last)
+    return idx_loader
 
 def init_model(options):
     model = TimeConv(
             infeat_dim1=num_gate_types,
             infeat_dim2=num_module_types,
             hidden_dim=options.hidden_dim,
+            global_cat_choice=options.global_cat_choice,
+            global_info_choice= options.global_info_choice,
             inv_choice= options.inv_choice,
             flag_width=options.flag_width,
             flag_delay_pd=options.flag_delay_pd,
@@ -211,7 +212,7 @@ def gather_data(sampled_data,idx,flag_path):
     return POs_label_all, PIs_delay_all, new_edges, new_edges_weight, new_POs
 
 
-def inference(model,test_data,test_idx_loader,usage='test',prob_file='',labels_file=''):
+def inference(model,test_data,batch_size,usage='test',prob_file='',labels_file=''):
 
     new_dataset = []
 
@@ -223,7 +224,7 @@ def inference(model,test_data,test_idx_loader,usage='test',prob_file='',labels_f
         temp_labels, temp_labels_hat = None, None
         POs_topo = None
 
-        batch_size = test_idx_loader.batch_size
+
         for i in range(0,len(test_data),batch_size):
             idxs = list(range(i,min(i+batch_size,len(test_data))))
         # for batch, idxs in enumerate(test_idx_loader):
@@ -404,8 +405,8 @@ def inference(model,test_data,test_idx_loader,usage='test',prob_file='',labels_f
         #     pickle.dump(labels.detach().cpu(), f)
         # with open("labels_hat_new2.pkl", 'wb') as f:
         #     pickle.dump(labels_hat.detach().cpu(), f)
-        with open('prob_max2.pkl', 'wb') as f:
-            pickle.dump(POs_criticalprob.detach().cpu(),f)
+        # with open('prob_max2.pkl', 'wb') as f:
+        #     pickle.dump(POs_criticalprob.detach().cpu(),f)
         # x = []
         # y = []
         # indexs = list(range(9,40))
@@ -437,14 +438,16 @@ def inference(model,test_data,test_idx_loader,usage='test',prob_file='',labels_f
         return test_loss, test_r2,test_mape,min_ratio,max_ratio
     #model.flag_train = True
 
-def test(model,test_data,test_idx_loader):
+def test(model,test_data,flag_reverse):
 
+    batch_size = options.batch_size if flag_reverse else len(test_data)
+    test_idx_loader = get_idx_loader(test_data, batch_size)
     model.flag_train = False
     with (th.no_grad()):
         total_num, total_loss, total_r2 = 0, 0.0, 0
         labels,labels_hat = None,None
 
-        batch_size = test_idx_loader.batch_size
+
         # for i in range(0,len(test_data),batch_size):
         #     idxs = list(range(i,min(i+batch_size,len(test_data))))
         for batch, idxs in enumerate(test_idx_loader):
@@ -467,7 +470,7 @@ def test(model,test_data,test_idx_loader):
             graphs_info['POs_mask'] = (sampled_graphs.ndata['is_po'] == 1).squeeze(-1).to(device)
             POs_topolevel = sampled_graphs.ndata['PO_feat'][sampled_graphs.ndata['is_po'] == 1].to(device)
             graphs_info['POs_feat'] = POs_topolevel
-            if options.flag_reverse and not options.flag_path_supervise:
+            if flag_reverse:
                 topo_r = gen_topo(sampled_graphs, flag_reverse=True)
                 graphs_info['topo_r'] = [l.to(device) for l in topo_r]
                 nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
@@ -525,10 +528,12 @@ def train(model):
     print(options)
     th.multiprocessing.set_sharing_strategy('file_system')
 
-    train_data,train_idx_loader = load_data('train')
-    val_data,val_idx_loader = load_data('val')
-    test_data,test_idx_loader = load_data('test')
+    train_data = load_data('train')
+    val_data = load_data('val')
+    test_data = load_data('test')
     print("Data successfully loaded")
+
+    train_idx_loader = get_idx_loader(train_data,options.batch_size)
 
     # set the optimizer
     # if options.flag_reverse and options.pi_choice==0:
@@ -545,6 +550,9 @@ def train(model):
     #     optim = th.optim.Adam(
     #         model.parameters(), options.learning_rate, weight_decay=options.weight_decay
     #     )
+    optim = th.optim.Adam(
+        model.parameters(), options.learning_rate, weight_decay=options.weight_decay
+    )
     model.train()
 
 
@@ -553,66 +561,32 @@ def train(model):
     cur_time = datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
     num_traindata = len(train_data)
     for epoch in range(options.num_epoch):
-        model.flag_train = True
-        flag_reverse = options.flag_reverse
-        flag_path = options.flag_path_supervise
-        # flag_reverse = options.flag_reverse and epoch%3==0
-        # flag_path = options.flag_path_supervise and epoch % 3 == 0
-        model.flag_reverse = flag_reverse
-        model.flag_path_supervise = flag_path
-        Loss = nn.MSELoss()
-        Loss = nn.L1Loss()
-        #Loss = nn.MSELoss() if epoch%3==0 else nn.L1Loss()
 
+
+        model.flag_train = True
+        batch_size_test = 1000
+        flag_path = options.flag_path_supervise
+        flag_reverse = options.flag_reverse
+        Loss = nn.L1Loss()
+        if options.flag_alternate:
+            if epoch%3==0:
+                flag_reverse = False
+                Loss = nn.L1Loss()
+            else:
+                flag_path = False
+                Loss = nn.MSELoss()
+                if options.flag_reverse:
+                    train_idx_loader = get_idx_loader(train_data, options.batch_size )
+                else:
+                    train_idx_loader = get_idx_loader(train_data, options.batch_size*2)
+
+        model.flag_path_supervise = flag_path
+        model.flag_reverse = flag_reverse
 
         #train_idx_loader.batch_size = options.batch_size if epoch%2==0 else options.batch_size*2
 
         print('Epoch {} ------------------------------------------------------------'.format(epoch+1))
         total_num,total_loss, total_r2 = 0,0.0,0
-
-
-        if options.flag_path_supervise:
-            # optim = th.optim.Adam(
-            #     itertools.chain([model.attention_vector_g,model.attention_vector_m],
-            #                     #model.mlp_out.parameters()
-            #                     ),
-            #     options.learning_rate, weight_decay=options.weight_decay
-            # )
-            optim =  th.optim.Adam(
-                model.parameters(), options.learning_rate, weight_decay=options.weight_decay
-            )
-        elif not options.flag_reverse:
-            optim = th.optim.Adam(
-                model.parameters(), options.learning_rate, weight_decay=options.weight_decay
-            )
-        # elif epoch % 3 ==2:
-        #     optim = th.optim.Adam(
-        #         itertools.chain(model.mlp_pi.parameters(), model.mlp_neigh_gate.parameters(),
-        #                         model.mlp_neigh_module.parameters(), model.mlp_type.parameters(),
-        #                         model.mlp_pos.parameters()), options.learning_rate, weight_decay=options.weight_decay
-        #     )
-
-        elif options.pi_choice==0:
-            optim = th.optim.Adam(
-                itertools.chain(model.mlp_global_pi.parameters(), model.mlp_out_new.parameters()),
-                options.learning_rate, weight_decay=options.weight_decay
-            )
-
-        elif options.pi_choice==1:
-            optim = th.optim.Adam(
-
-                model.mlp_out.parameters(),
-                options.learning_rate, weight_decay=options.weight_decay
-            )
-        elif options.pi_choice==2:
-            optim = th.optim.Adam(
-                #model.parameters(),
-                model.mlp_out_new.parameters(),
-                options.learning_rate, weight_decay=options.weight_decay
-            )
-        else:
-            assert False
-
 
         for batch, idxs in enumerate(train_idx_loader):
             torch.cuda.empty_cache()
@@ -637,17 +611,17 @@ def train(model):
             POs_topolevel = sampled_graphs.ndata['PO_feat'][sampled_graphs.ndata['is_po'] == 1].to(device)
             graphs_info['POs_feat'] = POs_topolevel
             graphs_info['topo'] = [l.to(device) for l in topo_levels]
-            if flag_reverse:
+            if flag_reverse or flag_path:
                 topo_r = gen_topo(sampled_graphs, flag_reverse=True)
                 graphs_info['topo_r'] = [l.to(device) for l in topo_r]
                 nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
                 POs = nodes_list[sampled_graphs.ndata['is_po'] == 1]
                 graphs_info['POs'] = POs.detach().cpu().numpy().tolist()
-                # sampled_graphs.ndata['hd'] = -1000*th.ones((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
-                # sampled_graphs.ndata['hp'] = th.zeros((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
-                # for i, po in enumerate(POs):
-                #     sampled_graphs.ndata['hp'][po][i] = 1
-                #     sampled_graphs.ndata['hd'][po][i] = 0
+                sampled_graphs.ndata['hd'] = -1000*th.ones((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
+                sampled_graphs.ndata['hp'] = th.zeros((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
+                for i, po in enumerate(POs):
+                    sampled_graphs.ndata['hp'][po][i] = 1
+                    sampled_graphs.ndata['hd'][po][i] = 0
 
             num_POs = 0
             totoal_path_loss,total_prob = 0,0
@@ -657,10 +631,11 @@ def train(model):
                 torch.cuda.empty_cache()
                 POs_label, PIs_delay, new_edges, new_edges_weight, new_POs = gather_data(sampled_data, i, options.flag_path_supervise)
 
-                if options.flag_path_supervise:
+                if flag_path:
                     #new_edges_feat = {'prob': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1)}
                     sampled_graphs.add_edges(th.tensor(new_edges[0]).to(device), th.tensor(new_edges[1]).to(device),
                                     etype='pi2po')
+
                 if new_POs is not None:
                     new_po_mask = th.zeros((sampled_graphs.number_of_nodes(), 1), dtype=th.float)
                     new_po_mask[new_POs] = 1
@@ -683,12 +658,12 @@ def train(model):
                 sampled_graphs.ndata['input_delay'][sampled_graphs.ndata['is_pi'] == 1] = PIs_delay
 
 
-                if flag_reverse:
-                    sampled_graphs.ndata['hd'] = -1000*th.ones((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
-                    sampled_graphs.ndata['hp'] = th.zeros((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
-                    for j, po in enumerate(POs):
-                        sampled_graphs.ndata['hp'][po][j] = 1
-                        sampled_graphs.ndata['hd'][po][j] = 0
+                # if options.flag_reverse or flag_path:
+                #     sampled_graphs.ndata['hd'] = -1000*th.ones((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
+                #     sampled_graphs.ndata['hp'] = th.zeros((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
+                #     for j, po in enumerate(POs):
+                #         sampled_graphs.ndata['hp'][po][j] = 1
+                #         sampled_graphs.ndata['hd'][po][j] = 0
 
                 labels_hat,prob_sum,prob_dev,_ = model(sampled_graphs, graphs_info)
                 #print(len(labels))
@@ -741,8 +716,8 @@ def train(model):
 
         torch.cuda.empty_cache()
         model.flag_train = False
-        val_loss, val_r2,val_mape,val_min_ratio,val_max_ratio = test(model, val_data,val_idx_loader)
-        test_loss, test_r2,test_mape,test_min_ratio,test_max_ratio = test(model,test_data,test_idx_loader)
+        val_loss, val_r2,val_mape,val_min_ratio,val_max_ratio = test(model, val_data,batch_size_test)
+        test_loss, test_r2,test_mape,test_min_ratio,test_max_ratio = test(model,test_data,batch_size_test)
         model.flag_train = True
         torch.cuda.empty_cache()
         print('End of epoch {}'.format(epoch))
@@ -789,10 +764,11 @@ if __name__ == "__main__":
         model.flag_path_supervise = options.flag_path_supervise
         flag_inference = True
 
+        model.mlp_out_new = MLP(options.hidden_dim + 1, options.hidden_dim, 1)
         #if True:
-        if options.flag_reverse and not options.flag_path_supervise:
-            if options.pi_choice == 0: model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
-            model.mlp_out_new = MLP(options.out_dim, options.hidden_dim, 1)
+        # if options.flag_reverse and not options.flag_path_supervise:
+        #     if options.pi_choice == 0: model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
+        #     model.mlp_out_new = MLP(options.out_dim, options.hidden_dim, 1)
         model = model.to(device)
         model.load_state_dict(th.load(model_save_path,map_location='cuda:{}'.format(options.gpu)))
         usages = ['train','test','val']
@@ -825,13 +801,24 @@ if __name__ == "__main__":
             model = init_model(options)
             # if options.pretrain_dir is not None:
             #     model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
+            #model.mlp_out_new = MLP(options.hidden_dim + 1, options.hidden_dim, 1)
+
             if options.pretrain_dir is not None:
                 model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
 
-            if options.flag_reverse and not options.flag_path_supervise:
-                if options.pi_choice == 0:
-                    model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
-                model.mlp_out_new =  MLP(options.hidden_dim+1,options.hidden_dim,1)
+            new_out_dim = 0
+            if options.global_info_choice in [0,1,2]:
+                new_out_dim += options.hidden_dim
+            elif options.global_info_choice in [3]:
+                new_out_dim += 2*options.hidden_dim
+
+            if options.global_cat_choice == 0:
+                new_out_dim += 1
+            else:
+                new_out_dim += options.hidden_dim
+
+            if new_out_dim!=0:
+                model.mlp_out_new = MLP(new_out_dim, options.hidden_dim, 1)
 
             model = model.to(device)
 
