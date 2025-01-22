@@ -199,7 +199,7 @@ class TimeConv(nn.Module):
 
         h[mask] = self.activation(h[mask])
 
-        if self.flag_reverse:
+        if self.flag_reverse or self.flag_path_supervise:
             return {'h':h,'attn_sum':nodes.data['attn_sum'],'attn_max': nodes.data['attn_max']}
         else:
             return {'h': h}
@@ -219,9 +219,9 @@ class TimeConv(nn.Module):
         else:
             h = self.mlp_neigh_gate(nodes.data['neigh']) + self.mlp_self_gate(m_self)
         h[mask] = self.activation(h[mask])
-        if self.flag_reverse and self.attn_choice == 1:
+        if self.flag_reverse or self.flag_path_supervise and self.attn_choice == 1:
             return {'h': h, 'exp_src_sum': nodes.data['exp_src_sum'], 'exp_src_max': nodes.data['exp_src_max']}
-        elif self.flag_reverse and self.attn_choice == 0:
+        elif self.flag_reverse or self.flag_path_supervise and self.attn_choice == 0:
             return {'h': h, 'attn_sum': nodes.data['attn_sum'],'attn_max': nodes.data['attn_max']}
         else:
             return {'h': h}
@@ -268,7 +268,7 @@ class TimeConv(nn.Module):
 
     def reduce_func_attn_m(self,nodes):
 
-        if self.flag_reverse:
+        if self.flag_reverse or self.flag_path_supervise:
             attn_e = nodes.mailbox['attn_e']
             max_attn_e = th.max(attn_e, dim=1).values
             attn_e = attn_e - max_attn_e.unsqueeze(1)
@@ -286,7 +286,7 @@ class TimeConv(nn.Module):
 
     def reduce_func_attn_g(self,nodes):
 
-        if self.flag_reverse:
+        if self.flag_reverse or self.flag_path_supervise:
             attn_e = nodes.mailbox['attn_e']
             max_attn_e = th.max(attn_e, dim=1).values
             attn_e = attn_e - max_attn_e.unsqueeze(1)
@@ -348,7 +348,7 @@ class TimeConv(nn.Module):
         exp_src_max = th.max(msg,dim=1).values
         exp_src_sum = th.sum(th.exp(msg-exp_src_max.unsqueeze(1)),dim=1)
 
-        if self.flag_reverse:
+        if self.flag_reverse or self.flag_path_supervise:
             return {'neigh': (msg * weight).sum(1),'exp_src_sum':exp_src_sum,'exp_src_max':exp_src_max}
         else:
             return {'neigh': (msg * weight).sum(1)}
@@ -463,7 +463,7 @@ class TimeConv(nn.Module):
                 #print(graph.edges['intra_module'].data['ratio'])
 
 
-            if self.flag_reverse:
+            if self.flag_reverse or self.flag_path_supervise:
                 graph.edges['reverse'].data['weight'] = th.zeros((graph.number_of_edges('reverse'), 1),
                                                                  dtype=th.float).to(device)
             #propagate messages in the topological order, from PIs to POs
@@ -487,7 +487,7 @@ class TimeConv(nn.Module):
                                 eids = graph.in_edges(nodes_gate, form='eid', etype='intra_gate')
                                 graph.apply_edges(self.edge_msg_gate, eids, etype='intra_gate')
                             graph.pull(nodes_gate, message_func_gate, reduce_func_gate, self.nodes_func_gate, etype='intra_gate')
-                            if self.flag_reverse:
+                            if self.flag_reverse or self.flag_path_supervise:
                                 eids = graph.in_edges(nodes_gate, form='eid', etype='intra_gate')
                                 eids_r = graph.out_edges(nodes_gate, form='eid', etype='reverse')
                                 graph.apply_edges(self.edge_msg_gate_weight, eids, etype='intra_gate')
@@ -499,7 +499,7 @@ class TimeConv(nn.Module):
                             eids = graph.in_edges(nodes_module, form='eid', etype='intra_module')
                             graph.apply_edges(self.edge_msg_module, eids, etype='intra_module')
                             graph.pull(nodes_module, self.message_func_module, self.reduce_func_attn_m, self.nodes_func_module, etype='intra_module')
-                            if self.flag_reverse:
+                            if self.flag_reverse or self.flag_path_supervise:
                                 graph.apply_edges(self.edge_msg_module_weight, eids, etype='intra_module')
                                 eids_r = graph.out_edges(nodes_module, form='eid', etype='reverse')
                                 graph.edges['reverse'].data['weight'][eids_r] = graph.edges['intra_module'].data['weight'][eids]
