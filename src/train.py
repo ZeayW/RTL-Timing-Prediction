@@ -114,7 +114,7 @@ def load_data(usage,flag_inference=False):
             print('skip',graph_info['design_name'])
             continue
 
-        if options.flag_reverse:
+        if options.flag_reverse or options.flag_path_supervise:
             graph = add_reverse_edges(graph)
         if  options.flag_path_supervise:
             graph = add_newEtype(graph,'pi2po',([],[]),{})
