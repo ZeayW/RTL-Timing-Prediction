@@ -685,11 +685,15 @@ class TimeConv(nn.Module):
                 #PIs_mask = th.logical_or(graph.ndata['is_pi'] == 1,(graph.ndata['value'][:,[2]]==0).squeeze(1))
 
                 #nodes_attn = th.softmax(th.transpose(nodes_prob,0,1),dim=1)
+                nodes_emb = graph.ndata['h']
+                if self.global_info_choice in [1,4]:
+                    nodes_prob = nodes_prob[graph.ndata['is_po']==0]
+                    nodes_emb = graph.ndata['h'][graph.ndata['is_po']==0]
 
-                h_global = th.matmul(th.transpose(nodes_prob,0,1),graph.ndata['h'])
-                if self.global_info_choice == 1:
-                    h_global = h_global - h
-                elif self.global_info_choice == 2:
+                nodes_prob_tr = th.transpose(nodes_prob,0,1)
+                h_global = th.matmul(nodes_prob_tr,nodes_emb)
+
+                if self.global_info_choice == 2:
                     PIs_mask = graph.ndata['is_pi'] == 1
                     PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
                     h_pi = th.matmul(PIs_prob, graph.ndata['delay'][PIs_mask])
@@ -704,8 +708,11 @@ class TimeConv(nn.Module):
                     h = th.cat((rst,h_global),dim=1)
                 elif self.global_cat_choice == 1:
                     h = th.cat((h,h_global),dim=1)
+                elif self.global_cat_choice == 2:
+                    h = h_global
 
                 rst = self.mlp_out_new(h)
+
 
                 return  rst,th.tensor([0.0]),th.tensor([0.0]),POs_criticalprob
 

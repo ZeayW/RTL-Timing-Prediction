@@ -814,9 +814,9 @@ if __name__ == "__main__":
 
             if options.global_cat_choice == 0:
                 new_out_dim += 1
-            else:
+            elif options.global_cat_choice == 1:
                 new_out_dim += options.hidden_dim
-
+            
             if new_out_dim!=0:
                 model.mlp_out_new = MLP(new_out_dim, options.hidden_dim, 1)
 
