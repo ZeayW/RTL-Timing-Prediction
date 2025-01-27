@@ -65,7 +65,7 @@ def cat_tensor(t1,t2):
         return th.cat((t1,t2),dim=0)
 # print(split_list)
 # exit()
-def load_data(usage,flag_inference=False):
+def load_data(usage,flag_quick=True,flag_inference=False):
     assert usage in ['train','val','test']
 
     target_list = split_list[usage]
@@ -73,10 +73,12 @@ def load_data(usage,flag_inference=False):
     #print(target_list[:10])
 
     data = [d for i,d in enumerate(data_all) if design_names[i] in target_list]
-    if usage == 'train':
-        case_range = (0,20)
-    else:
-        case_range = (0, 40)
+    case_range = (0, 100)
+    if flag_quick:
+        if usage == 'train':
+            case_range = (0,20)
+        else:
+            case_range = (0, 40)
     print("------------Loading {}_data #{} {}-------------".format(usage,len(data),case_range))
 
     loaded_data = []
@@ -253,7 +255,7 @@ def inference(model,test_data,batch_size,usage='test',prob_file='',labels_file='
             graphs_info['POs_mask'] = (sampled_graphs.ndata['is_po'] == 1).squeeze(-1).to(device)
             POs_topolevel = sampled_graphs.ndata['PO_feat'][sampled_graphs.ndata['is_po'] == 1].to(device)
             graphs_info['POs_feat'] = POs_topolevel
-            if options.flag_reverse:
+            if options.flag_reverse or options.flag_path_supervise:
                 topo_r = gen_topo(sampled_graphs, flag_reverse=True)
                 graphs_info['topo_r'] = [l.to(device) for l in topo_r]
                 nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
@@ -483,8 +485,11 @@ def test(model,test_data,flag_reverse):
                     sampled_graphs.ndata['hd'][po][k] = 0
 
             for j in range(num_cases):
-                POs_label, PIs_delay, _, _, new_POs = gather_data(sampled_data,j,False)
-
+                POs_label, PIs_delay, new_edges, _, new_POs = gather_data(sampled_data,j,options.flag_path_supervise)
+                if options.flag_path_supervise:
+                    #new_edges_feat = {'prob': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1)}
+                    sampled_graphs.add_edges(th.tensor(new_edges[0]).to(device), th.tensor(new_edges[1]).to(device),
+                                    etype='pi2po')
                 if new_POs is not None:
                     new_po_mask = th.zeros((sampled_graphs.number_of_nodes(),1),dtype=th.float)
                     new_po_mask[new_POs] = 1
@@ -506,6 +511,9 @@ def test(model,test_data,flag_reverse):
 
                 labels_hat = cat_tensor(labels_hat,cur_labels_hat)
                 labels = cat_tensor(labels,POs_label)
+
+                if options.flag_path_supervise:
+                    sampled_graphs.remove_edges(sampled_graphs.edges('all', etype='pi2po')[2], etype='pi2po')
 
         # with open("labels2.pkl",'wb') as f:
         #     pickle.dump(labels.detach().cpu(),f)
@@ -553,7 +561,13 @@ def train(model):
     optim = th.optim.Adam(
         model.parameters(), options.learning_rate, weight_decay=options.weight_decay
     )
+
+    # if options.flag_reverse:
+    #     optim = th.optim.Adam(
+    #         model.mlp_out_new.parameters(), options.learning_rate, weight_decay=options.weight_decay
+    #     )
     model.train()
+
 
 
     print("----------------Start training----------------")
@@ -564,7 +578,7 @@ def train(model):
 
 
         model.flag_train = True
-        batch_size_test = 1000
+
         flag_path = options.flag_path_supervise
         flag_reverse = options.flag_reverse
         Loss = nn.L1Loss()
@@ -700,7 +714,7 @@ def train(model):
                     path_loss_avg = totoal_path_loss / num_POs
                     prob_avg = total_prob / num_POs
                     #print(data['design_name'],len(total_labels),num_POs)
-                    print(model.attention_vector_g[0].item(),model.attention_vector_m[0].item())
+                    #print(model.attention_vector_g[0].item(),model.attention_vector_m[0].item())
                     print('{}/{} train_loss:{:.3f}, {:.3f} {:.3f}\ttrain_r2:{:.3f}\ttrain_mape:{:.3f}, ratio:{:.2f}-{:.2f}'.format((batch+1)*options.batch_size,num_traindata,train_loss.item(),path_loss_avg,prob_avg,train_r2.item(),train_mape.item(),min_ratio,max_ratio))
 
                 if len(labels_hat) ==0:
@@ -716,8 +730,8 @@ def train(model):
 
         torch.cuda.empty_cache()
         model.flag_train = False
-        val_loss, val_r2,val_mape,val_min_ratio,val_max_ratio = test(model, val_data,batch_size_test)
-        test_loss, test_r2,test_mape,test_min_ratio,test_max_ratio = test(model,test_data,batch_size_test)
+        val_loss, val_r2,val_mape,val_min_ratio,val_max_ratio = test(model, val_data,flag_reverse)
+        test_loss, test_r2,test_mape,test_min_ratio,test_max_ratio = test(model,test_data,flag_reverse)
         model.flag_train = True
         torch.cuda.empty_cache()
         print('End of epoch {}'.format(epoch))
@@ -755,6 +769,8 @@ if __name__ == "__main__":
         options.flag_delay_pd = input_options.flag_delay_pd
         options.inv_choice = input_options.inv_choice
         options.remove01 = input_options.remove01
+        options.global_info_choice = input_options.global_info_choice
+        options.global_cat_choice = input_options.global_cat_choice
 
         print(options)
         # exit()
@@ -764,7 +780,19 @@ if __name__ == "__main__":
         model.flag_path_supervise = options.flag_path_supervise
         flag_inference = True
 
-        model.mlp_out_new = MLP(options.hidden_dim + 1, options.hidden_dim, 1)
+        new_out_dim = 0
+        if options.global_info_choice in [0, 1, 2]:
+            new_out_dim += options.hidden_dim
+        elif options.global_info_choice in [3]:
+            new_out_dim += 2 * options.hidden_dim
+
+        if options.global_cat_choice == 0:
+            new_out_dim += 1
+        elif options.global_cat_choice == 1:
+            new_out_dim += options.hidden_dim
+
+        if options.flag_reverse and new_out_dim != 0:
+            model.mlp_out_new = MLP(new_out_dim, options.hidden_dim, 1)
         #if True:
         # if options.flag_reverse and not options.flag_path_supervise:
         #     if options.pi_choice == 0: model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
@@ -779,11 +807,11 @@ if __name__ == "__main__":
             prob_file = os.path.join(save_file_dir,'POs_criticalprob_{}2.pkl'.format(usage))
             labels_file = os.path.join(save_file_dir,'labels_hat_high3.pkl')
 
-            test_data,test_idx_loader = load_data(usage,flag_inference)
+            test_data = load_data(usage,options.quick,flag_inference)
 
-            #test_loss, test_r2, test_mape, test_min_ratio, test_max_ratio = test(model, test_data,test_idx_loader)
+            #test_loss, test_r2, test_mape, test_min_ratio, test_max_ratio = test(model, test_data,options.flag_reverse)
 
-            test_loss, test_r2,test_mape,test_min_ratio,test_max_ratio = inference(model, test_data,test_idx_loader,usage,prob_file,labels_file)
+            test_loss, test_r2,test_mape,test_min_ratio,test_max_ratio = inference(model, test_data,options.batch_size,usage,prob_file,labels_file)
             print(
                 '\ttest: loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(test_loss, test_r2,
                                                                                                          test_mape,test_min_ratio,test_max_ratio))
@@ -803,8 +831,8 @@ if __name__ == "__main__":
             #     model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
             #model.mlp_out_new = MLP(options.hidden_dim + 1, options.hidden_dim, 1)
 
-            if options.pretrain_dir is not None:
-                model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
+            # if options.pretrain_dir is not None:
+            #     model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
 
             new_out_dim = 0
             if options.global_info_choice in [0,1,2]:
@@ -816,9 +844,12 @@ if __name__ == "__main__":
                 new_out_dim += 1
             elif options.global_cat_choice == 1:
                 new_out_dim += options.hidden_dim
-            
-            if new_out_dim!=0:
+
+            if options.flag_reverse and new_out_dim!=0:
                 model.mlp_out_new = MLP(new_out_dim, options.hidden_dim, 1)
+            #
+            if options.pretrain_dir is not None:
+                model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
 
             model = model.to(device)
 

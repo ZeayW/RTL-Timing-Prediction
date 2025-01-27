@@ -111,7 +111,7 @@ class TimeConv(nn.Module):
             self.mlp_neigh = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
         else:
             if self.agg_choice==0:
-                neigh_dim_m = hidden_dim + self.infeat_dim2 + 1
+                neigh_dim_m = hidden_dim + self.infeat_dim2+1
                 neigh_dim_g = hidden_dim + self.infeat_dim1
             else:
                 neigh_dim_m = hidden_dim
@@ -186,7 +186,7 @@ class TimeConv(nn.Module):
 
         mask = nodes.data['is_po'].squeeze() != 1
         m_self = th.cat((nodes.data['pos'], nodes.data[self.feat_name2]), dim=1)
-
+        #m_self = nodes.data[self.feat_name2]
         # print(th.sum(th.abs(nodes.data['width']-nodes.data['pos'])))
         # # exit()
         if self.flag_delay_pi:
@@ -528,9 +528,11 @@ class TimeConv(nn.Module):
             rst = self.mlp_out(h)
 
 
+            prob_sum, prob_dev = th.tensor([0.0]),th.tensor([0.0])
+            POs_criticalprob = None
 
-            if not self.flag_train and self.flag_path_supervise:
-                return rst,th.tensor([0.0]),th.tensor([0.0]),None
+            # if not self.flag_train and self.flag_path_supervise:
+            #     return rst,prob_sum, prob_dev,POs_criticalprob
 
             #print("aaaa")
 
@@ -668,7 +670,7 @@ class TimeConv(nn.Module):
 
 
 
-                    return rst, prob_sum,prob_dev,POs_criticalprob
+                    #return rst, prob_sum,prob_dev,POs_criticalprob
                     #return rst, path_loss,POs_delay_d,POs_delay_p,POs_delay_m,POs_delay_w,POs_criticalprob
 
 
@@ -714,7 +716,7 @@ class TimeConv(nn.Module):
                 rst = self.mlp_out_new(h)
 
 
-                return  rst,th.tensor([0.0]),th.tensor([0.0]),POs_criticalprob
+                return  rst,prob_sum, prob_dev,POs_criticalprob
 
 
 
@@ -773,7 +775,7 @@ class TimeConv(nn.Module):
             #print('g',num_gate,th.sum(graph.edges['intra_gate'].data['weight']))
             #print('m',num_module,th.sum(graph.edges['intra_module'].data['weight']))
 
-            return rst,th.tensor([0.0]),th.tensor([0.0]),None
+            return rst,prob_sum, prob_dev,POs_criticalprob
 
 class GraphBackProp(nn.Module):
 
