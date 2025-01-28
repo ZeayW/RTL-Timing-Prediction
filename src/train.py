@@ -28,7 +28,7 @@ options = get_options()
 device = th.device("cuda:" + str(options.gpu) if th.cuda.is_available() else "cpu")
 R2_score = R2Score().to(device)
 Loss = nn.MSELoss()
-Loss = nn.L1Loss()
+#Loss = nn.L1Loss()
 
 
 with open(os.path.join(options.data_savepath, 'ntype2id.pkl'), 'rb') as f:
@@ -194,7 +194,8 @@ def gather_data(sampled_data,idx,flag_path):
         if flag_path:
             new_edges[0].extend([nid + start_idx for nid in pi2po_edges[0]])
             new_edges[1].extend([nid + start_idx for nid in pi2po_edges[1]])
-            # new_edges_weight.extend(edges_weight)
+            if len(pi2po_edges)==3:
+                new_edges_weight.extend(pi2po_edges[2])
 
         if len(data['delay-label_pairs'][idx]) == 6:
             abnormal_POs, normal_POs = data['delay-label_pairs'][idx][4:]
@@ -485,11 +486,13 @@ def test(model,test_data,flag_reverse):
                     sampled_graphs.ndata['hd'][po][k] = 0
 
             for j in range(num_cases):
-                POs_label, PIs_delay, new_edges, _, new_POs = gather_data(sampled_data,j,options.flag_path_supervise)
-                if options.flag_path_supervise:
-                    #new_edges_feat = {'prob': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1)}
+                POs_label, PIs_delay, new_edges, new_edges_weight, new_POs = gather_data(sampled_data,j,options.flag_path_supervise)
+                if flag_reverse and options.flag_path_supervise:
+                    new_edges_feat = {}
+                    if len(new_edges_weight)>0:
+                        new_edges_feat = {'w': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1)}
                     sampled_graphs.add_edges(th.tensor(new_edges[0]).to(device), th.tensor(new_edges[1]).to(device),
-                                    etype='pi2po')
+                                             data=new_edges_feat,etype='pi2po')
                 if new_POs is not None:
                     new_po_mask = th.zeros((sampled_graphs.number_of_nodes(),1),dtype=th.float)
                     new_po_mask[new_POs] = 1
@@ -512,7 +515,7 @@ def test(model,test_data,flag_reverse):
                 labels_hat = cat_tensor(labels_hat,cur_labels_hat)
                 labels = cat_tensor(labels,POs_label)
 
-                if options.flag_path_supervise:
+                if flag_reverse and options.flag_path_supervise:
                     sampled_graphs.remove_edges(sampled_graphs.edges('all', etype='pi2po')[2], etype='pi2po')
 
         # with open("labels2.pkl",'wb') as f:
@@ -646,9 +649,11 @@ def train(model):
                 POs_label, PIs_delay, new_edges, new_edges_weight, new_POs = gather_data(sampled_data, i, options.flag_path_supervise)
 
                 if flag_path:
-                    #new_edges_feat = {'prob': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1)}
+                    new_edges_feat = {}
+                    if len(new_edges_weight) >0:
+                        new_edges_feat = {'w': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1)}
                     sampled_graphs.add_edges(th.tensor(new_edges[0]).to(device), th.tensor(new_edges[1]).to(device),
-                                    etype='pi2po')
+                                    data=new_edges_feat,etype='pi2po')
 
                 if new_POs is not None:
                     new_po_mask = th.zeros((sampled_graphs.number_of_nodes(), 1), dtype=th.float)
@@ -831,8 +836,8 @@ if __name__ == "__main__":
             #     model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
             #model.mlp_out_new = MLP(options.hidden_dim + 1, options.hidden_dim, 1)
 
-            # if options.pretrain_dir is not None:
-            #     model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
+            if options.pretrain_dir is not None:
+                model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
 
             new_out_dim = 0
             if options.global_info_choice in [0,1,2]:
@@ -848,8 +853,8 @@ if __name__ == "__main__":
             if options.flag_reverse and new_out_dim!=0:
                 model.mlp_out_new = MLP(new_out_dim, options.hidden_dim, 1)
             #
-            if options.pretrain_dir is not None:
-                model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
+            # if options.pretrain_dir is not None:
+            #     model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
 
             model = model.to(device)
 

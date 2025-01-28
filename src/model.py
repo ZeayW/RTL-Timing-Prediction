@@ -393,7 +393,8 @@ class TimeConv(nn.Module):
 
     def message_func_loss(self, edges):
         pi_prob = th.gather(edges.src['hp'],dim=1,index=edges.dst['id'])
-        return {'ml':pi_prob}
+
+        return {'ml':pi_prob,'w':edges.data['w']}
 
     def message_func_prob(self, edges):
         msg = th.gather(edges.src['hp'], dim=1, index=edges.dst['id'])
@@ -409,7 +410,8 @@ class TimeConv(nn.Module):
         return {'h':h}
 
     def reduce_func_loss(self,nodes):
-        prob_sum = th.sum(nodes.mailbox['ml'],dim=1)
+        #prob_sum = th.sum(nodes.mailbox['ml'],dim=1)
+        prob_sum = th.sum(nodes.mailbox['ml'] * nodes.mailbox['w'], dim=1)
         prob_mean = th.mean(nodes.mailbox['ml'], dim=1).unsqueeze(1)
         prob_dev = th.sum(th.abs(nodes.mailbox['ml']-prob_mean),dim=1)
         #prob_dev = th.sum(th.pow(nodes.mailbox['ml'] - prob_mean,2), dim=1)
@@ -531,8 +533,8 @@ class TimeConv(nn.Module):
             prob_sum, prob_dev = th.tensor([0.0]),th.tensor([0.0])
             POs_criticalprob = None
 
-            # if not self.flag_train and self.flag_path_supervise:
-            #     return rst,prob_sum, prob_dev,POs_criticalprob
+            if not self.flag_train and self.flag_path_supervise:
+                return rst,prob_sum, prob_dev,POs_criticalprob
 
             #print("aaaa")
 
@@ -670,7 +672,7 @@ class TimeConv(nn.Module):
 
 
 
-                    #return rst, prob_sum,prob_dev,POs_criticalprob
+                    return rst, prob_sum,prob_dev,POs_criticalprob
                     #return rst, path_loss,POs_delay_d,POs_delay_p,POs_delay_m,POs_delay_w,POs_criticalprob
 
 

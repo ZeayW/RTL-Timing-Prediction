@@ -725,9 +725,20 @@ def parse_golden(file_path):
         else:
             assert False, "wrong PO info: {}".format(line)
 
+    k=5
     if len(po2delay2pis)!=0:
         for po,label in po_labels.items():
-            po_criticalPIs[po] = po2delay2pis[po][label]
+            critical_PIs = po2delay2pis[po][label]
+            critical_PIs = [(pi,1) for pi in critical_PIs[:k]]
+            v = label
+            #print(po, label,critical_PIs)
+            while len(critical_PIs)<k and v>0:
+                num_remain = k-len(critical_PIs)
+                v = v -1
+                added_PIs = po2delay2pis[po].get(v,[])[:num_remain]
+                critical_PIs.extend([(pi,v/label) for pi in added_PIs])
+                #print('\t',po,label,added_PIs,v)
+            po_criticalPIs[po] = critical_PIs
 
     return pi_delay,po_labels,po_criticalPIs
 
@@ -744,7 +755,7 @@ def main():
         design2idx = {}
         for design in os.listdir(subdir_path):
             num += 1
-            # if num not in list(range(300,401)):
+            # if num not in list(range(0,40)):
             #    continue
             if int(design.split('_')[-1]) in [110,220,183,185,319,320,329,371,383,392,399]:
                 continue
@@ -794,19 +805,23 @@ def main():
                     POs_label.append(po_labels[node])
                     POs_label_residual.append(po_labels_residual[node])
 
-                pi2po_edges = ([],[])
+                pi2po_edges = ([],[],[])
                 for po, critical_pis in po_criticalPIs.items():
                     po_nid = graph_info['nname2nid'][po]
-                    critical_pi_nids = [graph_info['nname2nid'][pi] for pi in critical_pis]
+                    critical_pi_nids = [graph_info['nname2nid'][pi] for pi,w in critical_pis]
+                    critical_pi_w = [w for pi, w in critical_pis]
                     pi2po_edges[0].extend(critical_pi_nids)
                     pi2po_edges[1].extend([po_nid]*len(critical_pi_nids))
+                    pi2po_edges[2].extend(critical_pi_w)
 
                 if len(po_criticalPIs)==0:
                     nodes_delay = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
                     nodes_delay[graph.ndata['is_pi'] == 1] = th.tensor(PIs_delay, dtype=th.float).unsqueeze(1)
                     graph.ndata['delay'] = nodes_delay
-                    pi2po_edges,edges_weight = get_pi2po_edges(graph,graph_info)
+                    pi2po_edges = get_pi2po_edges(graph,graph_info)
 
+                # print(pi2po_edges)
+                # exit()
 
                 #print(idx,len(PIs_delay),th.sum(graph.ndata['is_pi']).item(),len(POs_label),th.sum(graph.ndata['is_po']).item())
                 assert len(PIs_delay) == th.sum(graph.ndata['is_pi']).item() and len(POs_label) == th.sum(graph.ndata['is_po']).item()
