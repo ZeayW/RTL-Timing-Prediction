@@ -490,7 +490,7 @@ def test(model,test_data,flag_reverse):
                 if flag_reverse and options.flag_path_supervise:
                     new_edges_feat = {}
                     if len(new_edges_weight)>0:
-                        new_edges_feat = {'w': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1)}
+                        new_edges_feat = {'w': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1).to(device)}
                     sampled_graphs.add_edges(th.tensor(new_edges[0]).to(device), th.tensor(new_edges[1]).to(device),
                                              data=new_edges_feat,etype='pi2po')
                 if new_POs is not None:
@@ -651,7 +651,7 @@ def train(model):
                 if flag_path:
                     new_edges_feat = {}
                     if len(new_edges_weight) >0:
-                        new_edges_feat = {'w': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1)}
+                        new_edges_feat = {'w': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1).to(device)}
                     sampled_graphs.add_edges(th.tensor(new_edges[0]).to(device), th.tensor(new_edges[1]).to(device),
                                     data=new_edges_feat,etype='pi2po')
 
