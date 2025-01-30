@@ -713,6 +713,10 @@ class TimeConv(nn.Module):
                     nodes_delay, nodes_inputDelay = self.prop_delay(graph, graph_info)
                     h_d = nodes_inputDelay[POs]
                     h_global = th.cat((h_global, h_d), dim=1)
+                elif self.global_info_choice == 5:
+                    nodes_delay, nodes_inputDelay = self.prop_delay(graph, graph_info)
+                    h_d = th.matmul(nodes_prob_tr,nodes_inputDelay)
+                    h_global = th.cat((h_global, h_d), dim=1)
 
                 if self.global_cat_choice == 0:
                     h = th.cat((rst,h_global),dim=1)
