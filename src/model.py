@@ -693,7 +693,7 @@ class TimeConv(nn.Module):
 
                 #nodes_attn = th.softmax(th.transpose(nodes_prob,0,1),dim=1)
                 nodes_emb = graph.ndata['h']
-                if self.global_info_choice in [1,4]:
+                if self.global_info_choice in [1]:
                     nodes_prob = nodes_prob[graph.ndata['is_po']==0]
                     nodes_emb = graph.ndata['h'][graph.ndata['is_po']==0]
 
