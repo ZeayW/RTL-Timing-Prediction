@@ -842,7 +842,7 @@ if __name__ == "__main__":
             new_out_dim = 0
             if options.global_info_choice in [0,1,2]:
                 new_out_dim += options.hidden_dim
-            elif options.global_info_choice in [3,4]:
+            elif options.global_info_choice in [3,4,5]:
                 new_out_dim += options.hidden_dim + 1
 
             if options.global_cat_choice == 0:
