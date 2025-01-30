@@ -370,17 +370,20 @@ class TimeConv(nn.Module):
         return {'hp':th.sum(nodes.mailbox['mp'],dim=1),'hd':th.max(nodes.mailbox['dst'],dim=1).values}
 
     def message_func_delay(self,edges):
-        return {'md':edges.src['delay']}
+        return {'md': edges.src['delay'],'w':edges.data['weight']}
+        #return {'md':edges.src['delay']}
 
 
     def reduce_func_delay_g(self,nodes):
         delay = th.max(nodes.mailbox['md'],dim=1).values+0.3
-        input_delay = th.max(nodes.mailbox['md'],dim=1).values
+        #input_delay = th.max(nodes.mailbox['md'],dim=1).values
+        input_delay = th.sum(nodes.mailbox['md'] * nodes.mailbox['w'], dim=1)
         return {'delay':delay,'input_delay':input_delay}
 
     def reduce_func_delay_m(self,nodes):
         delay = th.max(nodes.mailbox['md'],dim=1).values+0.6
-        input_delay = th.max(nodes.mailbox['md'], dim=1).values
+        #input_delay = th.max(nodes.mailbox['md'], dim=1).values
+        input_delay = th.sum(nodes.mailbox['md']*nodes.mailbox['w'],dim=1)
         return {'delay':delay,'input_delay':input_delay}
 
     def edge_msg_delay_ratio_m(self,edges):
@@ -410,8 +413,8 @@ class TimeConv(nn.Module):
         return {'h':h}
 
     def reduce_func_loss(self,nodes):
-        #prob_sum = th.sum(nodes.mailbox['ml'],dim=1)
-        prob_sum = th.sum(nodes.mailbox['ml'] * nodes.mailbox['w'], dim=1)
+        prob_sum = th.sum(nodes.mailbox['ml'],dim=1)
+        #prob_sum = th.sum(nodes.mailbox['ml'] * nodes.mailbox['w'], dim=1)
         prob_mean = th.mean(nodes.mailbox['ml'], dim=1).unsqueeze(1)
         prob_dev = th.sum(th.abs(nodes.mailbox['ml']-prob_mean),dim=1)
         #prob_dev = th.sum(th.pow(nodes.mailbox['ml'] - prob_mean,2), dim=1)
@@ -697,16 +700,19 @@ class TimeConv(nn.Module):
                 nodes_prob_tr = th.transpose(nodes_prob,0,1)
                 h_global = th.matmul(nodes_prob_tr,nodes_emb)
 
+                PIs_mask = graph.ndata['is_pi'] == 1
+                PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
+
                 if self.global_info_choice == 2:
-                    PIs_mask = graph.ndata['is_pi'] == 1
-                    PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
-                    h_pi = th.matmul(PIs_prob, graph.ndata['delay'][PIs_mask])
+                    h_pi = th.matmul(PIs_prob, graph.ndata['h'][PIs_mask])
                     h_global =h_global+h_pi
                 elif self.global_info_choice == 3:
-                    PIs_mask = graph.ndata['is_pi'] == 1
-                    PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
                     h_pi = th.matmul(PIs_prob, graph.ndata['delay'][PIs_mask])
                     h_global = th.cat((h_global, h_pi), dim=1)
+                elif self.global_info_choice == 4:
+                    nodes_delay, nodes_inputDelay = self.prop_delay(graph, graph_info)
+                    h_d = nodes_inputDelay[POs]
+                    h_global = th.cat((h_global, h_d), dim=1)
 
                 if self.global_cat_choice == 0:
                     h = th.cat((rst,h_global),dim=1)

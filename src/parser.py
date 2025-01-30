@@ -729,13 +729,13 @@ def parse_golden(file_path):
     if len(po2delay2pis)!=0:
         for po,label in po_labels.items():
             critical_PIs = po2delay2pis[po][label]
-            critical_PIs = [(pi,1) for pi in critical_PIs[:k]]
+            critical_PIs = [(pi,1) for pi in critical_PIs]
             v = label
             #print(po, label,critical_PIs)
             while len(critical_PIs)<k and v>0:
                 num_remain = k-len(critical_PIs)
                 v = v -1
-                added_PIs = po2delay2pis[po].get(v,[])[:num_remain]
+                added_PIs = po2delay2pis[po].get(v,[])
                 critical_PIs.extend([(pi,v/label) for pi in added_PIs])
                 #print('\t',po,label,added_PIs,v)
             po_criticalPIs[po] = critical_PIs

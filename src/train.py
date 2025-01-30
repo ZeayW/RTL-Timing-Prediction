@@ -28,7 +28,7 @@ options = get_options()
 device = th.device("cuda:" + str(options.gpu) if th.cuda.is_available() else "cpu")
 R2_score = R2Score().to(device)
 Loss = nn.MSELoss()
-#Loss = nn.L1Loss()
+Loss = nn.L1Loss()
 
 
 with open(os.path.join(options.data_savepath, 'ntype2id.pkl'), 'rb') as f:
@@ -842,8 +842,8 @@ if __name__ == "__main__":
             new_out_dim = 0
             if options.global_info_choice in [0,1,2]:
                 new_out_dim += options.hidden_dim
-            elif options.global_info_choice in [3]:
-                new_out_dim += 2*options.hidden_dim
+            elif options.global_info_choice in [3,4]:
+                new_out_dim += options.hidden_dim + 1
 
             if options.global_cat_choice == 0:
                 new_out_dim += 1
