@@ -797,7 +797,7 @@ if __name__ == "__main__":
             new_out_dim += options.hidden_dim
 
         if options.flag_reverse and new_out_dim != 0:
-            model.mlp_out_new = MLP(new_out_dim, options.hidden_dim, 1)
+            model.mlp_out_new = MLP(new_out_dim, options.hidden_dim, 1,negative_slope=0.1)
         #if True:
         # if options.flag_reverse and not options.flag_path_supervise:
         #     if options.pi_choice == 0: model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
@@ -844,14 +844,15 @@ if __name__ == "__main__":
                 new_out_dim += options.hidden_dim
             elif options.global_info_choice in [3,4,5]:
                 new_out_dim += options.hidden_dim + 1
-
+            elif options.global_info_choice in [6]:
+                new_out_dim += options.hidden_dim + 2
             if options.global_cat_choice == 0:
                 new_out_dim += 1
             elif options.global_cat_choice == 1:
                 new_out_dim += options.hidden_dim
 
             if options.flag_reverse and new_out_dim!=0:
-                model.mlp_out_new = MLP(new_out_dim, options.hidden_dim, 1)
+                model.mlp_out_new = MLP(new_out_dim, options.hidden_dim, 1,negative_slope=0.1)
             #
             # if options.pretrain_dir is not None:
             #     model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))

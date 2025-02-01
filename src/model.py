@@ -397,7 +397,7 @@ class TimeConv(nn.Module):
     def message_func_loss(self, edges):
         pi_prob = th.gather(edges.src['hp'],dim=1,index=edges.dst['id'])
 
-        return {'ml':pi_prob,'w':edges.data['w']}
+        return {'ml':pi_prob}
 
     def message_func_prob(self, edges):
         msg = th.gather(edges.src['hp'], dim=1, index=edges.dst['id'])
@@ -717,6 +717,11 @@ class TimeConv(nn.Module):
                     nodes_delay, nodes_inputDelay = self.prop_delay(graph, graph_info)
                     h_d = th.matmul(nodes_prob_tr,nodes_inputDelay)
                     h_global = th.cat((h_global, h_d), dim=1)
+                elif self.global_info_choice == 6:
+                    nodes_delay, nodes_inputDelay = self.prop_delay(graph, graph_info)
+                    h_d = nodes_inputDelay[POs]
+                    h_pi = th.matmul(PIs_prob, graph.ndata['delay'][PIs_mask])
+                    h_global = th.cat((h_global, h_d,h_pi), dim=1)
 
                 if self.global_cat_choice == 0:
                     h = th.cat((rst,h_global),dim=1)

@@ -544,6 +544,7 @@ class Parser:
             nodes_valueOnehot[i][v] = 1
 
         # get the src_node list and dst_node lsit
+        nodes_outdegree = {}
         bit_position = []
         is_inv = [[],[]]
         for eid, (src, dst, edict) in enumerate(self.edges):
@@ -553,12 +554,19 @@ class Parser:
             edge_set_idx = is_module[node2nid[dst]]
 
             if node2nid.get(src,None) is not None:
-                src_nodes[edge_set_idx].append(node2nid[src])
+                src_nid = node2nid[src]
+                src_nodes[edge_set_idx].append(src_nid)
                 dst_nodes[edge_set_idx].append(node2nid[dst])
                 is_inv[edge_set_idx].append(edict['is_inv'])
-
+                if nodes_type[src_nid] not in ["1'b0","1'b1"]:
+                    nodes_outdegree[src_nid] = nodes_outdegree.get(src_nid,0) + 1
+                else:
+                    nodes_outdegree[src_nid] = 1
                 if edge_set_idx==1:
                     bit_position.append(edict['bit_position'])
+
+        nodes_outdegree = [nodes_outdegree.get(i,0) for i in range(len(nodes_type))]
+
 
         #print(len(src_nodes[1]), len(src_nodes[0]))
         graph = dgl.heterograph(
@@ -571,6 +579,7 @@ class Parser:
         graph.ndata['is_pi'] = th.tensor(is_pi)
         graph.ndata['is_module'] = th.tensor(is_module)
         graph.ndata['width'] = th.tensor(nodes_width,dtype=th.float).unsqueeze(1)
+        graph.ndata['width'] = th.tensor(nodes_outdegree, dtype=th.float).unsqueeze(1)
         graph.ndata['value'] = nodes_valueOnehot
         graph.edges['intra_module'].data['bit_position'] = th.tensor(bit_position, dtype=th.float)
         graph.edges['intra_module'].data['is_inv'] = th.tensor(is_inv[1], dtype=th.float)
@@ -730,13 +739,13 @@ def parse_golden(file_path):
         for po,label in po_labels.items():
             critical_PIs = po2delay2pis[po][label]
             critical_PIs = [(pi,1) for pi in critical_PIs]
-            v = label
-            #print(po, label,critical_PIs)
-            while len(critical_PIs)<k and v>0:
-                num_remain = k-len(critical_PIs)
-                v = v -1
-                added_PIs = po2delay2pis[po].get(v,[])
-                critical_PIs.extend([(pi,v/label) for pi in added_PIs])
+            # v = label
+            # #print(po, label,critical_PIs)
+            # while len(critical_PIs)<k and v>0:
+            #     num_remain = k-len(critical_PIs)
+            #     v = v -1
+            #     added_PIs = po2delay2pis[po].get(v,[])
+            #     critical_PIs.extend([(pi,v/label) for pi in added_PIs])
                 #print('\t',po,label,added_PIs,v)
             po_criticalPIs[po] = critical_PIs
 
