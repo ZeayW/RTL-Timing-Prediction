@@ -9,6 +9,7 @@ def get_options(args=None):
     parser.add_argument('--remove01',action='store_true')
     parser.add_argument('--inv_choice',type=int,default=-1)
     parser.add_argument('--quick',action='store_true')
+    parser.add_argument('--flag_degree', action='store_true')
     parser.add_argument('--flag_width', action='store_true')
     parser.add_argument('--flag_delay_m', action='store_true')
     parser.add_argument('--flag_delay_g', action='store_true')

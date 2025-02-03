@@ -558,6 +558,7 @@ class Parser:
                 src_nodes[edge_set_idx].append(src_nid)
                 dst_nodes[edge_set_idx].append(node2nid[dst])
                 is_inv[edge_set_idx].append(edict['is_inv'])
+                nodes_outdegree[src_nid] = nodes_outdegree.get(src_nid, 0) + 1
                 if nodes_type[src_nid] not in ["1'b0","1'b1"]:
                     nodes_outdegree[src_nid] = nodes_outdegree.get(src_nid,0) + 1
                 else:
@@ -567,6 +568,12 @@ class Parser:
 
         nodes_outdegree = [nodes_outdegree.get(i,0) for i in range(len(nodes_type))]
 
+
+        # for i,d in enumerate(nodes_outdegree):
+        #     if d>20:
+        #         print(nodes_name[i],d)
+        #         exit()
+        # exit()
 
         #print(len(src_nodes[1]), len(src_nodes[0]))
         graph = dgl.heterograph(
@@ -579,7 +586,7 @@ class Parser:
         graph.ndata['is_pi'] = th.tensor(is_pi)
         graph.ndata['is_module'] = th.tensor(is_module)
         graph.ndata['width'] = th.tensor(nodes_width,dtype=th.float).unsqueeze(1)
-        graph.ndata['width'] = th.tensor(nodes_outdegree, dtype=th.float).unsqueeze(1)
+        graph.ndata['degree'] = th.tensor(nodes_outdegree, dtype=th.float).unsqueeze(1)
         graph.ndata['value'] = nodes_valueOnehot
         graph.edges['intra_module'].data['bit_position'] = th.tensor(bit_position, dtype=th.float)
         graph.edges['intra_module'].data['is_inv'] = th.tensor(is_inv[1], dtype=th.float)

@@ -40,6 +40,7 @@ class TimeConv(nn.Module):
                  agg_choice=0,
                  attn_choice=1,
                  inv_choice=-1,
+                 flag_degree=False,
                  flag_width=False,
                  flag_delay_pd=False,
                  flag_delay_m=False,
@@ -59,6 +60,7 @@ class TimeConv(nn.Module):
         self.global_cat_choice = global_cat_choice
         self.global_info_choice = global_info_choice
         self.inv_choice = inv_choice
+        self.flag_degree = flag_degree
         self.flag_width = flag_width
         self.flag_delay_m = flag_delay_m
         self.flag_delay_g = flag_delay_g
@@ -117,6 +119,9 @@ class TimeConv(nn.Module):
                 neigh_dim_m = hidden_dim
                 neigh_dim_g = hidden_dim
             if self.flag_delay_pi:
+                neigh_dim_m += 1
+                neigh_dim_g += 1
+            if self.flag_degree:
                 neigh_dim_m += 1
                 neigh_dim_g += 1
             if self.flag_delay_pd:
@@ -191,6 +196,8 @@ class TimeConv(nn.Module):
         # # exit()
         if self.flag_delay_pi:
             m_self = th.cat((m_self, nodes.data['input_delay']), dim=1)
+        if self.flag_degree:
+            m_self = th.cat((m_self, nodes.data['degree']), dim=1)
         if self.agg_choice ==0:
             h = th.cat((nodes.data['neigh'], m_self), dim=1)
             h = self.mlp_neigh_module(h)
@@ -211,6 +218,8 @@ class TimeConv(nn.Module):
 
         if self.flag_delay_pi:
             m_self = th.cat((m_self,nodes.data['input_delay']),dim=1)
+        if self.flag_degree:
+            m_self = th.cat((m_self, nodes.data['degree']), dim=1)
         if self.agg_choice ==0:
 
             h = th.cat((nodes.data['neigh'], m_self), dim=1)
@@ -536,8 +545,8 @@ class TimeConv(nn.Module):
             prob_sum, prob_dev = th.tensor([0.0]),th.tensor([0.0])
             POs_criticalprob = None
 
-            if not self.flag_train and self.flag_path_supervise:
-                return rst,prob_sum, prob_dev,POs_criticalprob
+            # if not self.flag_train and self.flag_path_supervise:
+            #     return rst,prob_sum, prob_dev,POs_criticalprob
 
             #print("aaaa")
 
@@ -675,7 +684,7 @@ class TimeConv(nn.Module):
 
 
 
-                    return rst, prob_sum,prob_dev,POs_criticalprob
+                    #return rst, prob_sum,prob_dev,POs_criticalprob
                     #return rst, path_loss,POs_delay_d,POs_delay_p,POs_delay_m,POs_delay_w,POs_criticalprob
 
 
@@ -697,8 +706,14 @@ class TimeConv(nn.Module):
                     nodes_prob = nodes_prob[graph.ndata['is_po']==0]
                     nodes_emb = graph.ndata['h'][graph.ndata['is_po']==0]
 
+                #nodes_prob[nodes_prob<0.3] = 0
                 nodes_prob_tr = th.transpose(nodes_prob,0,1)
+
                 h_global = th.matmul(nodes_prob_tr,nodes_emb)
+                if self.global_info_choice==7:
+                    h_global = th.matmul(nodes_prob_tr, th.cat((nodes_emb,graph.ndata['degree']),dim=1))
+                elif self.global_info_choice==8:
+                    h_global = th.matmul(nodes_prob_tr, th.cat((nodes_emb,graph.ndata['feat']),dim=1))
 
                 PIs_mask = graph.ndata['is_pi'] == 1
                 PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
@@ -709,7 +724,7 @@ class TimeConv(nn.Module):
                 elif self.global_info_choice == 3:
                     h_pi = th.matmul(PIs_prob, graph.ndata['delay'][PIs_mask])
                     h_global = th.cat((h_global, h_pi), dim=1)
-                elif self.global_info_choice == 4:
+                elif self.global_info_choice in [4,7,8]:
                     nodes_delay, nodes_inputDelay = self.prop_delay(graph, graph_info)
                     h_d = nodes_inputDelay[POs]
                     h_global = th.cat((h_global, h_d), dim=1)
@@ -722,6 +737,7 @@ class TimeConv(nn.Module):
                     h_d = nodes_inputDelay[POs]
                     h_pi = th.matmul(PIs_prob, graph.ndata['delay'][PIs_mask])
                     h_global = th.cat((h_global, h_d,h_pi), dim=1)
+
 
                 if self.global_cat_choice == 0:
                     h = th.cat((rst,h_global),dim=1)

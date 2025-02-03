@@ -72,6 +72,7 @@ def load_data(usage,flag_quick=True,flag_inference=False):
     target_list = [n.split('_')[-1] for n in target_list]
     #print(target_list[:10])
 
+
     data = [d for i,d in enumerate(data_all) if design_names[i] in target_list]
     case_range = (0, 100)
     if flag_quick:
@@ -104,7 +105,9 @@ def load_data(usage,flag_quick=True,flag_inference=False):
         graph.ndata['feat'] = graph.ndata['ntype'][:,3:]
 
         # print(th.sum(graph.ndata['value'][:,0])+th.sum(graph.ndata['value'][:,1])+th.sum(graph.ndata['is_pi'])+th.sum(graph.ndata['feat']),th.sum(graph.ndata['ntype']))
-        graph.ndata['width'] = graph.ndata['width'].unsqueeze(1)
+
+        #graph.ndata['degree'] = graph.ndata['width']
+
         graph.ndata['feat_module'] = graph.ndata['ntype_module']
         graph.ndata['feat_gate'] = graph.ndata['ntype_gate'][:,3:]
         graph_info['POs_feat'] = graph_info['POs_level_max'].unsqueeze(-1)
@@ -148,6 +151,7 @@ def init_model(options):
             global_cat_choice=options.global_cat_choice,
             global_info_choice= options.global_info_choice,
             inv_choice= options.inv_choice,
+            flag_degree=options.flag_degree,
             flag_width=options.flag_width,
             flag_delay_pd=options.flag_delay_pd,
             flag_delay_m=options.flag_delay_m,
@@ -492,7 +496,7 @@ def test(model,test_data,flag_reverse):
                     if len(new_edges_weight)>0:
                         new_edges_feat = {'w': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1).to(device)}
                     sampled_graphs.add_edges(th.tensor(new_edges[0]).to(device), th.tensor(new_edges[1]).to(device),
-                                             data=new_edges_feat,etype='pi2po')
+                                             etype='pi2po')
                 if new_POs is not None:
                     new_po_mask = th.zeros((sampled_graphs.number_of_nodes(),1),dtype=th.float)
                     new_po_mask[new_POs] = 1
@@ -586,16 +590,18 @@ def train(model):
         flag_reverse = options.flag_reverse
         Loss = nn.L1Loss()
         if options.flag_alternate:
-            if epoch%3==0:
-                flag_reverse = False
-                Loss = nn.L1Loss()
-            else:
+            if epoch%3!=0:
                 flag_path = False
-                Loss = nn.MSELoss()
-                if options.flag_reverse:
-                    train_idx_loader = get_idx_loader(train_data, options.batch_size )
-                else:
-                    train_idx_loader = get_idx_loader(train_data, options.batch_size*2)
+            # if epoch%3==0:
+            #     flag_reverse = False
+            #     Loss = nn.L1Loss()
+            # else:
+            #     flag_path = False
+            #     Loss = nn.MSELoss()
+            #     if options.flag_reverse:
+            #         train_idx_loader = get_idx_loader(train_data, options.batch_size )
+            #     else:
+            #         train_idx_loader = get_idx_loader(train_data, options.batch_size*2)
 
         model.flag_path_supervise = flag_path
         model.flag_reverse = flag_reverse
@@ -653,7 +659,7 @@ def train(model):
                     if len(new_edges_weight) >0:
                         new_edges_feat = {'w': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1).to(device)}
                     sampled_graphs.add_edges(th.tensor(new_edges[0]).to(device), th.tensor(new_edges[1]).to(device),
-                                    data=new_edges_feat,etype='pi2po')
+                                    etype='pi2po')
 
                 if new_POs is not None:
                     new_po_mask = th.zeros((sampled_graphs.number_of_nodes(), 1), dtype=th.float)
@@ -692,11 +698,12 @@ def train(model):
 
 
                 #print(len(labels),len(path_loss))
-                path_loss =th.tensor(0)
+                path_loss =th.tensor(0.0)
 
 
                 if flag_path:
                     path_loss = th.mean(prob_sum-1*prob_dev)
+                    #path_loss = prob_sum - 1 * prob_dev
                     #path_loss = th.mean(prob_sum)*th.exp(1-th.mean(prob_dev))
                     train_loss += -path_loss
                     #train_loss = th.exp(1-path_loss)*train_loss
@@ -705,7 +712,7 @@ def train(model):
 
                 num_POs += len(prob_sum)
 
-                totoal_path_loss += path_loss.item()*len(prob_sum)
+                totoal_path_loss += th.mean(path_loss).item()*len(prob_sum)
                 total_prob += th.sum(prob_sum)
                 total_labels = cat_tensor(total_labels, POs_label)
                 total_labels_hat = cat_tensor(total_labels_hat, labels_hat)
@@ -768,7 +775,7 @@ if __name__ == "__main__":
         options.batch_size = input_options.batch_size
         options.gpu = input_options.gpu
         options.flag_path_supervise = input_options.flag_path_supervise
-        options.flag_reverse = input_options.flag_reverse
+        #options.flag_reverse = input_options.flag_reverse
         options.pi_choice = input_options.pi_choice
         options.quick = input_options.quick
         options.flag_delay_pd = input_options.flag_delay_pd
@@ -788,9 +795,14 @@ if __name__ == "__main__":
         new_out_dim = 0
         if options.global_info_choice in [0, 1, 2]:
             new_out_dim += options.hidden_dim
-        elif options.global_info_choice in [3]:
-            new_out_dim += 2 * options.hidden_dim
-
+        elif options.global_info_choice in [3, 4, 5]:
+            new_out_dim += options.hidden_dim + 1
+        elif options.global_info_choice in [6]:
+            new_out_dim += options.hidden_dim + 2
+        elif options.global_info_choice == 7:
+            new_out_dim += options.hidden_dim + 2
+        elif options.global_info_choice == 8:
+            new_out_dim += options.hidden_dim + 1 + num_module_types + num_gate_types
         if options.global_cat_choice == 0:
             new_out_dim += 1
         elif options.global_cat_choice == 1:
@@ -836,8 +848,8 @@ if __name__ == "__main__":
             #     model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
             #model.mlp_out_new = MLP(options.hidden_dim + 1, options.hidden_dim, 1)
 
-            if options.pretrain_dir is not None:
-                model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
+            # if options.pretrain_dir is not None:
+            #     model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
 
             new_out_dim = 0
             if options.global_info_choice in [0,1,2]:
@@ -846,6 +858,10 @@ if __name__ == "__main__":
                 new_out_dim += options.hidden_dim + 1
             elif options.global_info_choice in [6]:
                 new_out_dim += options.hidden_dim + 2
+            elif options.global_info_choice ==7:
+                new_out_dim += options.hidden_dim + 2
+            elif options.global_info_choice ==8:
+                new_out_dim += options.hidden_dim + 1 + num_module_types+num_gate_types
             if options.global_cat_choice == 0:
                 new_out_dim += 1
             elif options.global_cat_choice == 1:
@@ -853,9 +869,9 @@ if __name__ == "__main__":
 
             if options.flag_reverse and new_out_dim!=0:
                 model.mlp_out_new = MLP(new_out_dim, options.hidden_dim, 1,negative_slope=0.1)
-            #
-            # if options.pretrain_dir is not None:
-            #     model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
+
+            if options.pretrain_dir is not None:
+                model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
 
             model = model.to(device)
 
