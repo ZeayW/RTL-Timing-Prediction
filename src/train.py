@@ -783,6 +783,7 @@ if __name__ == "__main__":
         options.remove01 = input_options.remove01
         options.global_info_choice = input_options.global_info_choice
         options.global_cat_choice = input_options.global_cat_choice
+        options.flag_degree = input_options.flag_degree
 
         print(options)
         # exit()
