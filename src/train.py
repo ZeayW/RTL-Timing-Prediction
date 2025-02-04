@@ -358,7 +358,7 @@ def inference(model,test_data,batch_size,usage='test',prob_file='',labels_file='
             new_dataset.append((graph, data))
 
         if options.flag_path_supervise:
-            with open('new_data_{}4.pkl'.format(usage),'wb') as f:
+            with open('new_data_{}5.pkl'.format(usage),'wb') as f:
                 pickle.dump(new_dataset,f)
 
         test_loss = Loss(labels_hat, labels).item()
@@ -369,9 +369,12 @@ def inference(model,test_data,batch_size,usage='test',prob_file='',labels_file='
         min_ratio = th.min(ratio)
         max_ratio = th.max(ratio)
 
-        # if not os.path.exists(prob_file):
-        #     with open(prob_file,'wb') as f:
-        #         pickle.dump(POs_criticalprob.detach().cpu().numpy().tolist(),f)
+        if not os.path.exists(prob_file):
+            with open(prob_file,'wb') as f:
+                pickle.dump(POs_criticalprob.detach().cpu().numpy().tolist(),f)
+        if not os.path.exists(labels_file):
+            with open(labels_file, 'wb') as f:
+                pickle.dump(labels_hat.detach().cpu().numpy().tolist(), f)
         # else:
         #     with open(prob_file, 'rb') as f:
         #         POs_criticalprob = pickle.load(f)
@@ -816,12 +819,12 @@ if __name__ == "__main__":
         model = model.to(device)
         model.load_state_dict(th.load(model_save_path,map_location='cuda:{}'.format(options.gpu)))
         usages = ['train','test','val']
-        usages = ['test']
+        #usages = ['test']
         for usage in usages:
             save_file_dir = '../checkpoints/cases_round6_v2/heter_filter_fixmux_fixbuf_simplify01_merge_fixPO_fixBuf/bs32_attn0-smoothmax_noglobal_piFeatValue_reduceNtype_featpos_mse_attnLeaky02_pathsum_init'
             #save_file_dir = options.checkpoint
-            prob_file = os.path.join(save_file_dir,'POs_criticalprob_{}2.pkl'.format(usage))
-            labels_file = os.path.join(save_file_dir,'labels_hat_high_{}.pkl'.format(usage))
+            prob_file = os.path.join(save_file_dir,'POs_criticalprob_{}.pkl'.format(usage))
+            labels_file = os.path.join(save_file_dir,'labels_hat_{}.pkl'.format(usage))
 
             test_data = load_data(usage,options.quick,flag_inference)
 
