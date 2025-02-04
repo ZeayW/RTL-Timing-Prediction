@@ -337,7 +337,7 @@ def inference(model,test_data,batch_size,usage='test',prob_file='',labels_file='
                 #print(len(nodes_list),POs,abnormal_POs)
 
                 #new_delay_label_pairs.append((PIs_delay, POs_label, POs_baselabel,pi2po_edges, abnormal_mask))
-                data['delay-label_pairs'][j] = (PIs_delay, POs_label, POs_baselabel,pi2po_edges, abnormal_POs,normal_POs)
+                data['delay-label_pairs'][j] = (PIs_delay, POs_label, POs_baselabel,pi2po_edges,cur_POs_criticalprob.detach().cpu().numpy().tolist())
 
 
                 #mask = cur_POs_criticalprob.squeeze(1) <= 0.05
@@ -357,9 +357,9 @@ def inference(model,test_data,batch_size,usage='test',prob_file='',labels_file='
             #     exit()
             new_dataset.append((graph, data))
 
-        # if options.flag_path_supervise:
-        #     with open('new_data_{}2.pkl'.format(usage),'wb') as f:
-        #         pickle.dump(new_dataset,f)
+        if options.flag_path_supervise:
+            with open('new_data_{}4.pkl'.format(usage),'wb') as f:
+                pickle.dump(new_dataset,f)
 
         test_loss = Loss(labels_hat, labels).item()
 
@@ -701,14 +701,12 @@ def train(model):
                 path_loss =th.tensor(0.0)
 
 
-                if flag_path:
-                    path_loss = th.mean(prob_sum-1*prob_dev)
-                    #path_loss = prob_sum - 1 * prob_dev
-                    #path_loss = th.mean(prob_sum)*th.exp(1-th.mean(prob_dev))
-                    train_loss += -path_loss
-                    #train_loss = th.exp(1-path_loss)*train_loss
-                    #train_loss = th.mean(th.exp(1 - path_loss) * th.abs(labels_hat-POs_label))
-                    pass
+                # if flag_path:
+                #     path_loss = th.mean(prob_sum-1*prob_dev)
+                #     train_loss += -path_loss
+                #     #path_loss = prob_sum - 1 * prob_dev
+                #     #train_loss = th.mean((th.exp(1 - prob_sum)-prob_dev/len(prob_dev)) * th.abs(labels_hat-POs_label))
+                #     pass
 
                 num_POs += len(prob_sum)
 
@@ -823,7 +821,7 @@ if __name__ == "__main__":
             save_file_dir = '../checkpoints/cases_round6_v2/heter_filter_fixmux_fixbuf_simplify01_merge_fixPO_fixBuf/bs32_attn0-smoothmax_noglobal_piFeatValue_reduceNtype_featpos_mse_attnLeaky02_pathsum_init'
             #save_file_dir = options.checkpoint
             prob_file = os.path.join(save_file_dir,'POs_criticalprob_{}2.pkl'.format(usage))
-            labels_file = os.path.join(save_file_dir,'labels_hat_high3.pkl')
+            labels_file = os.path.join(save_file_dir,'labels_hat_high_{}.pkl'.format(usage))
 
             test_data = load_data(usage,options.quick,flag_inference)
 
@@ -863,7 +861,7 @@ if __name__ == "__main__":
                 new_out_dim += options.hidden_dim + 2
             elif options.global_info_choice ==8:
                 new_out_dim += options.hidden_dim + 1 + num_module_types+num_gate_types
-            if options.global_cat_choice == 0:
+            if options.global_cat_choice in [0,3,4]:
                 new_out_dim += 1
             elif options.global_cat_choice == 1:
                 new_out_dim += options.hidden_dim
@@ -873,6 +871,9 @@ if __name__ == "__main__":
 
             if options.pretrain_dir is not None:
                 model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
+
+            if options.global_cat_choice==4:
+                model.mlp_w = MLP(1,32,1)
 
             model = model.to(device)
 

@@ -564,7 +564,7 @@ class TimeConv(nn.Module):
                 # graph.pull(POs, self.message_func_prob, fn.sum('mp', 'prob'), etype='pi2po')
                 # POs_criticalprob = graph.ndata['prob'][POs]
 
-                if self.flag_path_supervise:
+                if self.flag_path_supervise or self.global_cat_choice in [3,4]:
 
                     graph.ndata['hp'] = nodes_prob
                     graph.ndata['id'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.int64).to(device)
@@ -745,6 +745,10 @@ class TimeConv(nn.Module):
                     h = th.cat((h,h_global),dim=1)
                 elif self.global_cat_choice == 2:
                     h = h_global
+                elif self.global_cat_choice == 3:
+                    h = th.cat((rst,(1-prob_sum)*h_global),dim=1)
+                elif self.global_cat_choice == 4:
+                    h = th.cat((rst,self.mlp_w(1-prob_sum)*h_global),dim=1)
 
                 rst = self.mlp_out_new(h)
 
