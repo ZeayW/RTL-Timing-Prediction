@@ -375,7 +375,7 @@ def inference(model,test_data,batch_size,usage='test',prob_file='',labels_file='
         #         pickle.dump(POs_criticalprob.detach().cpu().numpy().tolist(),f)
         # if not os.path.exists(labels_file):
         #     with open(labels_file, 'wb') as f:
-                pickle.dump(labels_hat.detach().cpu().numpy().tolist(), f)
+        ##        pickle.dump(labels_hat.detach().cpu().numpy().tolist(), f)
         # else:
         #     with open(prob_file, 'rb') as f:
         #         POs_criticalprob = pickle.load(f)
