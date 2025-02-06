@@ -121,7 +121,7 @@ def load_data(usage,flag_quick=True,flag_inference=False):
 
         if options.flag_reverse or options.flag_path_supervise:
             graph = add_reverse_edges(graph)
-        
+
         graph = add_newEtype(graph,'pi2po',([],[]),{})
 
         graph_info['graph'] = graph
@@ -144,31 +144,36 @@ def get_idx_loader(data,batch_size):
     return idx_loader
 
 def init_model(options):
-    model = TimeConv(
-            infeat_dim1=num_gate_types,
-            infeat_dim2=num_module_types,
-            hidden_dim=options.hidden_dim,
-            global_cat_choice=options.global_cat_choice,
-            global_info_choice= options.global_info_choice,
-            inv_choice= options.inv_choice,
-            flag_degree=options.flag_degree,
-            flag_width=options.flag_width,
-            flag_delay_pd=options.flag_delay_pd,
-            flag_delay_m=options.flag_delay_m,
-            flag_delay_g=options.flag_delay_g,
-            flag_delay_pi=options.flag_delay_pi,
-            flag_ntype_g=options.flag_ntype_g,
-            flag_path_supervise=options.flag_path_supervise,
-            flag_filter = options.flag_filter,
-            flag_reverse=options.flag_reverse,
-            flag_splitfeat=options.split_feat,
-            pi_choice=options.pi_choice,
-            agg_choice=options.agg_choice,
-            attn_choice=options.attn_choice,
-            flag_homo=options.flag_homo,
-            flag_global=options.flag_global,
-            flag_attn=options.flag_attn
-        ).to(device)
+    if options.flag_base == -1:
+        model = TimeConv(
+                infeat_dim1=num_gate_types,
+                infeat_dim2=num_module_types,
+                hidden_dim=options.hidden_dim,
+                global_cat_choice=options.global_cat_choice,
+                global_info_choice= options.global_info_choice,
+                inv_choice= options.inv_choice,
+                flag_degree=options.flag_degree,
+                flag_width=options.flag_width,
+                flag_delay_pd=options.flag_delay_pd,
+                flag_delay_m=options.flag_delay_m,
+                flag_delay_g=options.flag_delay_g,
+                flag_delay_pi=options.flag_delay_pi,
+                flag_ntype_g=options.flag_ntype_g,
+                flag_path_supervise=options.flag_path_supervise,
+                flag_filter = options.flag_filter,
+                flag_reverse=options.flag_reverse,
+                flag_splitfeat=options.split_feat,
+                pi_choice=options.pi_choice,
+                agg_choice=options.agg_choice,
+                attn_choice=options.attn_choice,
+                flag_homo=options.flag_homo,
+                flag_global=options.flag_global,
+                flag_attn=options.flag_attn
+            ).to(device)
+    elif  options.flag_baseline == 0:
+        model = ACCNN(infeat_dim=num_gate_types+num_module_types,
+                      hidden_dim=options.hidden_dim,
+                      flag_homo=options.flag_homo)
     print("creating model:")
     print(model)
 
@@ -370,12 +375,12 @@ def inference(model,test_data,batch_size,usage='test',prob_file='',labels_file='
         min_ratio = th.min(ratio)
         max_ratio = th.max(ratio)
 
-        # if not os.path.exists(prob_file):
-        #     with open(prob_file,'wb') as f:
-        #         pickle.dump(POs_criticalprob.detach().cpu().numpy().tolist(),f)
-        # if not os.path.exists(labels_file):
-        #     with open(labels_file, 'wb') as f:
-        ##        pickle.dump(labels_hat.detach().cpu().numpy().tolist(), f)
+        if not os.path.exists(prob_file):
+            with open(prob_file,'wb') as f:
+                pickle.dump(POs_criticalprob.detach().cpu().numpy().tolist(),f)
+        if not os.path.exists(labels_file):
+            with open(labels_file, 'wb') as f:
+                pickle.dump(labels_hat.detach().cpu().numpy().tolist(), f)
         # else:
         #     with open(prob_file, 'rb') as f:
         #         POs_criticalprob = pickle.load(f)
@@ -495,7 +500,7 @@ def test(model,test_data,flag_reverse):
 
             for j in range(num_cases):
                 POs_label, PIs_delay, new_edges, new_edges_weight, new_POs = gather_data(sampled_data,j,options.flag_path_supervise)
-                if flag_reverse and (options.flag_path_supervise or options.global_cat_choice in [3,4]):
+                if flag_reverse and (options.flag_path_supervise or options.global_cat_choice in [3,4,5]):
                     new_edges_feat = {}
                     if len(new_edges_weight)>0:
                         new_edges_feat = {'w': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1).to(device)}
@@ -523,7 +528,7 @@ def test(model,test_data,flag_reverse):
                 labels_hat = cat_tensor(labels_hat,cur_labels_hat)
                 labels = cat_tensor(labels,POs_label)
 
-                if flag_reverse and (options.flag_path_supervise or options.global_cat_choice in [3,4]):
+                if flag_reverse and (options.flag_path_supervise or options.global_cat_choice in [3,4,5]):
                     sampled_graphs.remove_edges(sampled_graphs.edges('all', etype='pi2po')[2], etype='pi2po')
 
         # with open("labels2.pkl",'wb') as f:
@@ -658,7 +663,7 @@ def train(model):
                 torch.cuda.empty_cache()
                 POs_label, PIs_delay, new_edges, new_edges_weight, new_POs = gather_data(sampled_data, i, options.flag_path_supervise)
 
-                if flag_path or options.global_cat_choice in [3,4]:
+                if flag_path or options.global_cat_choice in [3,4,5]:
                     new_edges_feat = {}
                     if len(new_edges_weight) >0:
                         new_edges_feat = {'w': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1).to(device)}
@@ -739,7 +744,7 @@ def train(model):
                 optim.step()
                 torch.cuda.empty_cache()
 
-                if flag_path or options.global_cat_choice in [3,4]:
+                if flag_path or options.global_cat_choice in [3,4,5]:
                     sampled_graphs.remove_edges(sampled_graphs.edges('all',etype='pi2po')[2],etype='pi2po')
 
         torch.cuda.empty_cache()
@@ -783,8 +788,7 @@ if __name__ == "__main__":
         options.flag_delay_pd = input_options.flag_delay_pd
         options.inv_choice = input_options.inv_choice
         options.remove01 = input_options.remove01
-        options.global_info_choice = input_options.global_info_choice
-        options.global_cat_choice = input_options.global_cat_choice
+
         options.flag_degree = input_options.flag_degree
 
         print(options)
@@ -813,6 +817,8 @@ if __name__ == "__main__":
 
         if options.flag_reverse and new_out_dim != 0:
             model.mlp_out_new = MLP(new_out_dim, options.hidden_dim, options.hidden_dim,1,negative_slope=0.1)
+        if options.global_cat_choice in [4, 5]:
+            model.mlp_w = MLP(1, 32, 1)
         #if True:
         # if options.flag_reverse and not options.flag_path_supervise:
         #     if options.pi_choice == 0: model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
@@ -822,8 +828,8 @@ if __name__ == "__main__":
         #usages = ['train','test','val']
         usages = ['test']
         for usage in usages:
-            save_file_dir = '../checkpoints/cases_round6_v2/heter_filter_fixmux_fixbuf_simplify01_merge_fixPO_fixBuf/bs32_attn0-smoothmax_noglobal_piFeatValue_reduceNtype_featpos_mse_attnLeaky02_pathsum_init'
-            #save_file_dir = options.checkpoint
+
+            save_file_dir = options.checkpoint
             prob_file = os.path.join(save_file_dir,'POs_criticalprob_{}.pkl'.format(usage))
             labels_file = os.path.join(save_file_dir,'labels_hat_{}.pkl'.format(usage))
 
@@ -867,7 +873,7 @@ if __name__ == "__main__":
                 new_out_dim += options.hidden_dim + 1 + num_module_types+num_gate_types
             if options.global_cat_choice in [0,3,4]:
                 new_out_dim += 1
-            elif options.global_cat_choice == 1:
+            elif options.global_cat_choice in [1,5]:
                 new_out_dim += options.hidden_dim
 
             if options.flag_reverse and new_out_dim!=0:
@@ -876,7 +882,7 @@ if __name__ == "__main__":
             if options.pretrain_dir is not None:
                 model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
 
-            if options.global_cat_choice==4:
+            if options.global_cat_choice in [4,5]:
                 model.mlp_w = MLP(1,32,1)
 
             model = model.to(device)
