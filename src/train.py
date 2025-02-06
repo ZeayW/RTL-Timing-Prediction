@@ -494,7 +494,7 @@ def test(model,test_data,flag_reverse):
 
             for j in range(num_cases):
                 POs_label, PIs_delay, new_edges, new_edges_weight, new_POs = gather_data(sampled_data,j,options.flag_path_supervise)
-                if flag_reverse and options.flag_path_supervise:
+                if flag_reverse and (options.flag_path_supervise or options.global_cat_choice in [3,4]):
                     new_edges_feat = {}
                     if len(new_edges_weight)>0:
                         new_edges_feat = {'w': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1).to(device)}
@@ -522,7 +522,7 @@ def test(model,test_data,flag_reverse):
                 labels_hat = cat_tensor(labels_hat,cur_labels_hat)
                 labels = cat_tensor(labels,POs_label)
 
-                if flag_reverse and options.flag_path_supervise:
+                if flag_reverse and (options.flag_path_supervise or options.global_cat_choice in [3,4]):
                     sampled_graphs.remove_edges(sampled_graphs.edges('all', etype='pi2po')[2], etype='pi2po')
 
         # with open("labels2.pkl",'wb') as f:
@@ -657,7 +657,7 @@ def train(model):
                 torch.cuda.empty_cache()
                 POs_label, PIs_delay, new_edges, new_edges_weight, new_POs = gather_data(sampled_data, i, options.flag_path_supervise)
 
-                if flag_path:
+                if flag_path or options.global_cat_choice in [3,4]:
                     new_edges_feat = {}
                     if len(new_edges_weight) >0:
                         new_edges_feat = {'w': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1).to(device)}
@@ -704,12 +704,12 @@ def train(model):
                 path_loss =th.tensor(0.0)
 
 
-                # if flag_path:
-                #     path_loss = th.mean(prob_sum-1*prob_dev)
-                #     train_loss += -path_loss
-                #     #path_loss = prob_sum - 1 * prob_dev
-                #     #train_loss = th.mean((th.exp(1 - prob_sum)-prob_dev/len(prob_dev)) * th.abs(labels_hat-POs_label))
-                #     pass
+                if flag_path:
+                    path_loss = th.mean(prob_sum-1*prob_dev)
+                    train_loss += -path_loss
+                    #path_loss = prob_sum - 1 * prob_dev
+                    #train_loss = th.mean((th.exp(1 - prob_sum)-prob_dev/len(prob_dev)) * th.abs(labels_hat-POs_label))
+                    pass
 
                 num_POs += len(prob_sum)
 
@@ -738,7 +738,7 @@ def train(model):
                 optim.step()
                 torch.cuda.empty_cache()
 
-                if flag_path:
+                if flag_path or options.global_cat_choice in [3,4]:
                     sampled_graphs.remove_edges(sampled_graphs.edges('all',etype='pi2po')[2],etype='pi2po')
 
         torch.cuda.empty_cache()
@@ -805,21 +805,21 @@ if __name__ == "__main__":
             new_out_dim += options.hidden_dim + 2
         elif options.global_info_choice == 8:
             new_out_dim += options.hidden_dim + 1 + num_module_types + num_gate_types
-        if options.global_cat_choice == 0:
+        if options.global_cat_choice in [0,3,4]:
             new_out_dim += 1
         elif options.global_cat_choice == 1:
             new_out_dim += options.hidden_dim
 
         if options.flag_reverse and new_out_dim != 0:
-            model.mlp_out_new = MLP(new_out_dim, options.hidden_dim, 1,negative_slope=0.1)
+            model.mlp_out_new = MLP(new_out_dim, options.hidden_dim, options.hidden_dim,1,negative_slope=0.1)
         #if True:
         # if options.flag_reverse and not options.flag_path_supervise:
         #     if options.pi_choice == 0: model.mlp_global_pi = MLP(2, int(options.hidden_dim / 2), options.hidden_dim)
         #     model.mlp_out_new = MLP(options.out_dim, options.hidden_dim, 1)
         model = model.to(device)
         model.load_state_dict(th.load(model_save_path,map_location='cuda:{}'.format(options.gpu)))
-        usages = ['train','test','val']
-        #usages = ['test']
+        #usages = ['train','test','val']
+        usages = ['test']
         for usage in usages:
             save_file_dir = '../checkpoints/cases_round6_v2/heter_filter_fixmux_fixbuf_simplify01_merge_fixPO_fixBuf/bs32_attn0-smoothmax_noglobal_piFeatValue_reduceNtype_featpos_mse_attnLeaky02_pathsum_init'
             #save_file_dir = options.checkpoint
@@ -870,7 +870,7 @@ if __name__ == "__main__":
                 new_out_dim += options.hidden_dim
 
             if options.flag_reverse and new_out_dim!=0:
-                model.mlp_out_new = MLP(new_out_dim, options.hidden_dim, 1,negative_slope=0.1)
+                model.mlp_out_new = MLP(new_out_dim, options.hidden_dim, options.hidden_dim,1,negative_slope=0.1)
 
             if options.pretrain_dir is not None:
                 model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
