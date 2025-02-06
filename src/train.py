@@ -121,8 +121,8 @@ def load_data(usage,flag_quick=True,flag_inference=False):
 
         if options.flag_reverse or options.flag_path_supervise:
             graph = add_reverse_edges(graph)
-        if  options.flag_path_supervise:
-            graph = add_newEtype(graph,'pi2po',([],[]),{})
+        
+        graph = add_newEtype(graph,'pi2po',([],[]),{})
 
         graph_info['graph'] = graph
         #graph_info['PI_mask'] = PI_mask
