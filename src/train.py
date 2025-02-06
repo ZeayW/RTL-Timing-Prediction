@@ -195,11 +195,11 @@ def gather_data(sampled_data,idx,flag_path):
 
         graph = data['graph']
         # collect the new edges from critical PIs to PO
-        if flag_path:
-            new_edges[0].extend([nid + start_idx for nid in pi2po_edges[0]])
-            new_edges[1].extend([nid + start_idx for nid in pi2po_edges[1]])
-            if len(pi2po_edges)==3:
-                new_edges_weight.extend(pi2po_edges[2])
+        #if flag_path:
+        new_edges[0].extend([nid + start_idx for nid in pi2po_edges[0]])
+        new_edges[1].extend([nid + start_idx for nid in pi2po_edges[1]])
+        if len(pi2po_edges)==3:
+            new_edges_weight.extend(pi2po_edges[2])
 
 
         if len(data['delay-label_pairs'][idx]) == 6:
@@ -706,10 +706,10 @@ def train(model):
 
 
                 if flag_path:
-                    # path_loss = th.mean(prob_sum-1*prob_dev)
-                    # train_loss += -path_loss
-                    path_loss = prob_sum - 1 * prob_dev
-                    train_loss = th.mean((th.exp(1 - path_loss)) * th.abs(labels_hat-POs_label))
+                    path_loss = th.mean(prob_sum-1*prob_dev)
+                    train_loss += -path_loss
+                    # path_loss = prob_sum - 1 * prob_dev
+                    # train_loss = th.mean((th.exp(1 - path_loss)) * th.abs(labels_hat-POs_label))
                     pass
 
                 num_POs += len(prob_sum)
@@ -808,7 +808,7 @@ if __name__ == "__main__":
             new_out_dim += options.hidden_dim + 1 + num_module_types + num_gate_types
         if options.global_cat_choice in [0,3,4]:
             new_out_dim += 1
-        elif options.global_cat_choice == 1:
+        elif options.global_cat_choice in [1,5]:
             new_out_dim += options.hidden_dim
 
         if options.flag_reverse and new_out_dim != 0:

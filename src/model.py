@@ -749,7 +749,8 @@ class TimeConv(nn.Module):
                     h = th.cat((rst,(1-prob_sum)*h_global),dim=1)
                 elif self.global_cat_choice == 4:
                     h = th.cat((rst,self.mlp_w(1-prob_sum)*h_global),dim=1)
-
+                elif self.global_cat_choice == 5:
+                    h = th.cat((h,self.mlp_w(1-prob_sum)*h_global),dim=1)
                 rst = self.mlp_out_new(h)
 
 
