@@ -201,6 +201,7 @@ def gather_data(sampled_data,idx,flag_path):
             if len(pi2po_edges)==3:
                 new_edges_weight.extend(pi2po_edges[2])
 
+
         if len(data['delay-label_pairs'][idx]) == 6:
             abnormal_POs, normal_POs = data['delay-label_pairs'][idx][4:]
             # nodes_list = th.tensor(range(graph.number_of_nodes())).to(device)
@@ -357,9 +358,9 @@ def inference(model,test_data,batch_size,usage='test',prob_file='',labels_file='
             #     exit()
             new_dataset.append((graph, data))
 
-        if options.flag_path_supervise:
-            with open('new_data_{}5.pkl'.format(usage),'wb') as f:
-                pickle.dump(new_dataset,f)
+        # if options.flag_path_supervise:
+        #     with open('new_data_{}5.pkl'.format(usage),'wb') as f:
+        #         pickle.dump(new_dataset,f)
 
         test_loss = Loss(labels_hat, labels).item()
 
@@ -369,11 +370,11 @@ def inference(model,test_data,batch_size,usage='test',prob_file='',labels_file='
         min_ratio = th.min(ratio)
         max_ratio = th.max(ratio)
 
-        if not os.path.exists(prob_file):
-            with open(prob_file,'wb') as f:
-                pickle.dump(POs_criticalprob.detach().cpu().numpy().tolist(),f)
-        if not os.path.exists(labels_file):
-            with open(labels_file, 'wb') as f:
+        # if not os.path.exists(prob_file):
+        #     with open(prob_file,'wb') as f:
+        #         pickle.dump(POs_criticalprob.detach().cpu().numpy().tolist(),f)
+        # if not os.path.exists(labels_file):
+        #     with open(labels_file, 'wb') as f:
                 pickle.dump(labels_hat.detach().cpu().numpy().tolist(), f)
         # else:
         #     with open(prob_file, 'rb') as f:
@@ -705,10 +706,10 @@ def train(model):
 
 
                 if flag_path:
-                    path_loss = th.mean(prob_sum-1*prob_dev)
-                    train_loss += -path_loss
-                    #path_loss = prob_sum - 1 * prob_dev
-                    #train_loss = th.mean((th.exp(1 - prob_sum)-prob_dev/len(prob_dev)) * th.abs(labels_hat-POs_label))
+                    # path_loss = th.mean(prob_sum-1*prob_dev)
+                    # train_loss += -path_loss
+                    path_loss = prob_sum - 1 * prob_dev
+                    train_loss = th.mean((th.exp(1 - path_loss)) * th.abs(labels_hat-POs_label))
                     pass
 
                 num_POs += len(prob_sum)
