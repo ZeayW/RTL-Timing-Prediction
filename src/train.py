@@ -91,7 +91,6 @@ def load_data(usage,flag_quick=True,flag_inference=False):
 
         if options.flag_homo:
             graph = heter2homo(graph)
-
         if options.remove01:
             nodes_list = th.tensor(range(graph.number_of_nodes()))
             mask = th.logical_or(graph.ndata['value'][:,0]==1, graph.ndata['value'][:,1]==1)
@@ -122,7 +121,8 @@ def load_data(usage,flag_quick=True,flag_inference=False):
         if options.flag_reverse or options.flag_path_supervise:
             graph = add_reverse_edges(graph)
 
-        graph = add_newEtype(graph,'pi2po',([],[]),{})
+        if options.flag_path_supervise or options.global_cat_choice in [3,4,5]:
+            graph = add_newEtype(graph,'pi2po',([],[]),{})
 
         graph_info['graph'] = graph
         #graph_info['PI_mask'] = PI_mask
@@ -144,7 +144,7 @@ def get_idx_loader(data,batch_size):
     return idx_loader
 
 def init_model(options):
-    if options.flag_base == -1:
+    if options.flag_baseline == -1:
         model = TimeConv(
                 infeat_dim1=num_gate_types,
                 infeat_dim2=num_module_types,
@@ -206,6 +206,8 @@ def gather_data(sampled_data,idx,flag_path):
         if len(pi2po_edges)==3:
             new_edges_weight.extend(pi2po_edges[2])
 
+        if len(data['delay-label_pairs'][idx]) == 5:
+            POs_criticalprob = data['delay-label_pairs'][idx][4]
 
         if len(data['delay-label_pairs'][idx]) == 6:
             abnormal_POs, normal_POs = data['delay-label_pairs'][idx][4:]
@@ -225,7 +227,10 @@ def gather_data(sampled_data,idx,flag_path):
     return POs_label_all, PIs_delay_all, new_edges, new_edges_weight, new_POs
 
 
-def inference(model,test_data,batch_size,usage='test',prob_file='',labels_file=''):
+def inference(model,test_data,batch_size,usage,save_path,flag_save=False):
+    prob_file = os.path.join(save_path, 'POs_criticalprob_{}.pkl'.format(usage))
+    labels_file = os.path.join(save_path, 'labels_hat_{}.pkl'.format(usage))
+    data_file = os.path.join(save_path, 'data_{}.pkl'.format(usage))
 
     new_dataset = []
 
@@ -363,9 +368,7 @@ def inference(model,test_data,batch_size,usage='test',prob_file='',labels_file='
             #     exit()
             new_dataset.append((graph, data))
 
-        # if options.flag_path_supervise:
-        #     with open('new_data_{}5.pkl'.format(usage),'wb') as f:
-        #         pickle.dump(new_dataset,f)
+
 
         test_loss = Loss(labels_hat, labels).item()
 
@@ -375,30 +378,21 @@ def inference(model,test_data,batch_size,usage='test',prob_file='',labels_file='
         min_ratio = th.min(ratio)
         max_ratio = th.max(ratio)
 
-        if not os.path.exists(prob_file):
-            with open(prob_file,'wb') as f:
-                pickle.dump(POs_criticalprob.detach().cpu().numpy().tolist(),f)
-        if not os.path.exists(labels_file):
+        if flag_save:
+            # with open(data_file,'wb') as f:
+            #     pickle.dump(new_dataset,f)
+            with open(prob_file, 'wb') as f:
+                pickle.dump(POs_criticalprob.detach().cpu().numpy().tolist(), f)
             with open(labels_file, 'wb') as f:
                 pickle.dump(labels_hat.detach().cpu().numpy().tolist(), f)
-        # else:
-        #     with open(prob_file, 'rb') as f:
-        #         POs_criticalprob = pickle.load(f)
-        #         POs_criticalprob = th.tensor(POs_criticalprob).to(device)
+
+
         if POs_criticalprob is not None:
             mask1 = POs_criticalprob.squeeze(1) <= 0.05
             mask2 = POs_criticalprob.squeeze(1) > 0.5
             mask3 = th.logical_and(POs_criticalprob.squeeze(1) > 0.05,POs_criticalprob.squeeze(1) <=0.5)
             mask_l = labels.squeeze(1) != 0
 
-            # if not os.path.exists(labels_file):
-            #     with open(labels_file, 'wb') as f:
-            #         pickle.dump(labels_hat[mask2].detach().cpu().numpy().tolist(), f)
-            # else:
-            #     with open(labels_file, 'rb') as f:
-            #         labels_hat_high = pickle.load(f)
-            #         labels_hat_high = th.tensor(labels_hat_high).to(device)
-            #         labels_hat[mask2] = labels_hat_high
             print(th.mean(POs_criticalprob))
             print(len(labels[mask1]) / len(labels), len(labels[mask2]) / len(labels))
             temp_r2 = R2_score(labels_hat[mask1], labels[mask1]).item()
@@ -417,12 +411,7 @@ def inference(model,test_data,batch_size,usage='test',prob_file='',labels_file='
                 th.abs(labels_hat[th.logical_and(mask3, mask_l)] - labels[th.logical_and(mask3, mask_l)]) /
                 labels[th.logical_and(mask3, mask_l)])
             print(temp_r3, temp_mape)
-        # with open("labels_new.pkl", 'wb') as f:
-        #     pickle.dump(labels.detach().cpu(), f)
-        # with open("labels_hat_new2.pkl", 'wb') as f:
-        #     pickle.dump(labels_hat.detach().cpu(), f)
-        # with open('prob_max2.pkl', 'wb') as f:
-        #     pickle.dump(POs_criticalprob.detach().cpu(),f)
+
         # x = []
         # y = []
         # indexs = list(range(9,40))
@@ -444,7 +433,7 @@ def inference(model,test_data,batch_size,usage='test',prob_file='',labels_file='
         #
         # plt.savefig('bar2.png')
         # max_label = max(th.max(labels_hat).item(),th.max(labels).item())
-        # plt.xlim(0, max_label)  # 设定绘图范围
+        # plt.xlim(0, max_label)
         # plt.ylim(0, max_label)
         # plt.xlabel('predict')
         # plt.ylabel('label')
@@ -788,6 +777,7 @@ if __name__ == "__main__":
         options.flag_delay_pd = input_options.flag_delay_pd
         options.inv_choice = input_options.inv_choice
         options.remove01 = input_options.remove01
+        options.flag_baseline = input_options.flag_baseline
 
         options.flag_degree = input_options.flag_degree
 
@@ -828,16 +818,13 @@ if __name__ == "__main__":
         #usages = ['train','test','val']
         usages = ['test']
         for usage in usages:
-
+            flag_save = True
             save_file_dir = options.checkpoint
-            prob_file = os.path.join(save_file_dir,'POs_criticalprob_{}.pkl'.format(usage))
-            labels_file = os.path.join(save_file_dir,'labels_hat_{}.pkl'.format(usage))
-
             test_data = load_data(usage,options.quick,flag_inference)
 
             #test_loss, test_r2, test_mape, test_min_ratio, test_max_ratio = test(model, test_data,options.flag_reverse)
 
-            test_loss, test_r2,test_mape,test_min_ratio,test_max_ratio = inference(model, test_data,options.batch_size,usage,prob_file,labels_file)
+            test_loss, test_r2,test_mape,test_min_ratio,test_max_ratio = inference(model, test_data,options.batch_size,usage,save_file_dir,flag_save)
             print(
                 '\ttest: loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(test_loss, test_r2,
                                                                                                          test_mape,test_min_ratio,test_max_ratio))
