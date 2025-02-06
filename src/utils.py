@@ -46,17 +46,19 @@ def heter2homo(graph):
     return homo_g
 
 def gen_topo(graph,flag_reverse=False):
-
-    src_module, dst_module = graph.edges(etype='intra_module', form='uv')
-    src_gate, dst_gate = graph.edges(etype='intra_gate', form='uv')
-    g = dgl.graph((th.cat([src_module,src_gate]), th.cat([dst_module,dst_gate])))
+    if is_heter(graph):
+        src_module, dst_module = graph.edges(etype='intra_module', form='uv')
+        src_gate, dst_gate = graph.edges(etype='intra_gate', form='uv')
+        g = dgl.graph((th.cat([src_module,src_gate]), th.cat([dst_module,dst_gate])))
+    else:
+        g = graph
     topo = dgl.topological_nodes_generator(g,reverse=flag_reverse)
 
     return topo
 
 
 def add_newEtype(graph,new_etype,new_edges,new_edge_feats):
-    graph = graph.to( th.device('cpu'))
+    graph = graph.to(th.device('cpu'))
     edges_dict = {}
     for etype in graph.etypes:
         if etype == new_etype:
@@ -79,17 +81,17 @@ def add_newEtype(graph,new_etype,new_edges,new_edge_feats):
     return new_graph
 
 def get_pi2po_edges(graph,graph_info):
-    new_edges = ([], [])
+    new_edges = ([], [],[])
     edges_weight = []
     po2pis = find_faninPIs(graph, graph_info)
 
     for po, (distance,pis) in po2pis.items():
         new_edges[0].extend(pis)
         new_edges[1].extend([po] * len(pis))
-        if len(pis) != 0:
-            edges_weight.extend([1 / len(pis)] * len(pis))
+        # if len(pis) != 0:
+        #     edges_weight.extend([1 / len(pis)] * len(pis))
 
-    return new_edges,edges_weight
+    return new_edges
 
 def add_pi2po_edges(graph,graph_info):
 
