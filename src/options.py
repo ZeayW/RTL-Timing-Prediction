@@ -5,6 +5,8 @@ def get_options(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--flag_baseline',type=int,default=-1,help='choose the model, -1: ours; 0:ACCNN; 1:Graph Transformer; 2: Path-based')
     parser.add_argument('--flag_alternate',action='store_true')
+    parser.add_argument('--global_out_choice', type=int, default=0,
+                        help='choose the way to implement the global attention')
     parser.add_argument('--global_cat_choice', type=int, default=0, help='choose the way to implement the global attention')
     parser.add_argument('--global_info_choice',  type=int,default=0,help='choose the way to implement the global attention')
     parser.add_argument('--remove01',action='store_true')

@@ -149,6 +149,7 @@ def init_model(options):
                 infeat_dim1=num_gate_types,
                 infeat_dim2=num_module_types,
                 hidden_dim=options.hidden_dim,
+                global_out_choice=options.global_out_choice,
                 global_cat_choice=options.global_cat_choice,
                 global_info_choice= options.global_info_choice,
                 inv_choice= options.inv_choice,
@@ -228,8 +229,9 @@ def gather_data(sampled_data,idx,flag_path):
 
 
 def inference(model,test_data,batch_size,usage,save_path,flag_save=False):
-    prob_file = os.path.join(save_path, 'POs_criticalprob_{}.pkl'.format(usage))
-    labels_file = os.path.join(save_path, 'labels_hat_{}.pkl'.format(usage))
+    prob_file = os.path.join(save_path, 'POs_criticalprob3_{}.pkl'.format(usage))
+    labels_file = os.path.join(save_path, 'labels_hat3_{}.pkl'.format(usage))
+    labels_file2 = os.path.join(save_path, 'labels_{}.pkl'.format(usage))
     data_file = os.path.join(save_path, 'data_{}.pkl'.format(usage))
 
     new_dataset = []
@@ -286,7 +288,7 @@ def inference(model,test_data,batch_size,usage,save_path,flag_save=False):
             new_delay_label_pairs = []
 
             # num_cases = 2
-            print(data['design_name'])
+            #print(data['design_name'])
             for j in range(num_cases):
                 #     continue
                 po_labels,po_labels_margin, pi_delays = None,None,None
@@ -385,6 +387,8 @@ def inference(model,test_data,batch_size,usage,save_path,flag_save=False):
                 pickle.dump(POs_criticalprob.detach().cpu().numpy().tolist(), f)
             with open(labels_file, 'wb') as f:
                 pickle.dump(labels_hat.detach().cpu().numpy().tolist(), f)
+            with open(labels_file2, 'wb') as f:
+                pickle.dump(labels.detach().cpu().numpy().tolist(), f)
 
 
         if POs_criticalprob is not None:
@@ -764,6 +768,15 @@ if __name__ == "__main__":
         input_options = options
         options = th.load('../checkpoints/{}/options.pkl'.format(options.checkpoint))
         options.data_savepath = input_options.data_savepath
+
+
+        # for arg in vars(input_options):
+        #
+        #     if arg not in vars(options):
+        #         print(arg)
+        #
+        #         options.arg = input_options.arg
+
         options.target_residual = input_options.target_residual
         #options.flag_filter = input_options.flag_filter
         #options.flag_reverse = input_options.flag_reverse
@@ -778,6 +791,7 @@ if __name__ == "__main__":
         options.inv_choice = input_options.inv_choice
         options.remove01 = input_options.remove01
         options.flag_baseline = input_options.flag_baseline
+        options.global_out_choice = input_options.global_out_choice
 
         options.flag_degree = input_options.flag_degree
 
@@ -807,6 +821,9 @@ if __name__ == "__main__":
 
         if options.flag_reverse and new_out_dim != 0:
             model.mlp_out_new = MLP(new_out_dim, options.hidden_dim, options.hidden_dim,1,negative_slope=0.1)
+            if options.global_out_choice == 1:
+                model.mlp_out_new2 = MLP(new_out_dim, options.hidden_dim, options.hidden_dim, 1, negative_slope=0.1)
+
         if options.global_cat_choice in [4, 5]:
             model.mlp_w = MLP(1, 32, 1)
         #if True:
@@ -815,7 +832,7 @@ if __name__ == "__main__":
         #     model.mlp_out_new = MLP(options.out_dim, options.hidden_dim, 1)
         model = model.to(device)
         model.load_state_dict(th.load(model_save_path,map_location='cuda:{}'.format(options.gpu)))
-        #usages = ['train','test','val']
+        usages = ['train','test','val']
         usages = ['test']
         for usage in usages:
             flag_save = True
@@ -866,11 +883,20 @@ if __name__ == "__main__":
             if options.flag_reverse and new_out_dim!=0:
                 model.mlp_out_new = MLP(new_out_dim, options.hidden_dim, options.hidden_dim,1,negative_slope=0.1)
 
+            # if options.global_cat_choice in [4,5]:
+            #     model.mlp_w = MLP(1,32,1)
+
             if options.pretrain_dir is not None:
                 model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
 
             if options.global_cat_choice in [4,5]:
                 model.mlp_w = MLP(1,32,1)
+
+            if options.global_out_choice == 1:
+                model.mlp_out_new2 = MLP(new_out_dim, options.hidden_dim, options.hidden_dim, 1, negative_slope=0.1)
+
+            # if options.global_cat_choice in [4,5]:
+            #     model.mlp_w = MLP(1,32,1)
 
             model = model.to(device)
 

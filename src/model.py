@@ -4,7 +4,9 @@ import torch as th
 from torch import nn
 from dgl import function as fn
 from utils import *
-from train import device
+from options import get_options
+options = get_options()
+device = th.device("cuda:" + str(options.gpu) if th.cuda.is_available() else "cpu")
 
 def get_nodename(nodes_name,nid):
     if nodes_name[nid][1] is not None:
@@ -34,6 +36,7 @@ class TimeConv(nn.Module):
                  infeat_dim1,
                  infeat_dim2,
                  hidden_dim,
+                 global_out_choice=0,
                  global_cat_choice=0,
                  global_info_choice=0,
                  pi_choice=0,
@@ -57,6 +60,7 @@ class TimeConv(nn.Module):
                  flag_attn=False):
         super(TimeConv, self).__init__()
 
+        self.global_out_choice = global_out_choice
         self.global_cat_choice = global_cat_choice
         self.global_info_choice = global_info_choice
         self.inv_choice = inv_choice
@@ -382,10 +386,6 @@ class TimeConv(nn.Module):
         input_delay = th.sum(nodes.mailbox['md']*nodes.mailbox['w'],dim=1)
         return {'delay':delay,'input_delay':input_delay}
 
-    def message_func_loss(self, edges):
-        pi_prob = th.gather(edges.src['hp'],dim=1,index=edges.dst['id'])
-
-        return {'ml':pi_prob}
 
     def message_func_prob(self, edges):
         msg = th.gather(edges.src['hp'], dim=1, index=edges.dst['id'])
@@ -400,13 +400,12 @@ class TimeConv(nn.Module):
 
         return {'h':h}
 
-    def reduce_func_loss(self,nodes):
-        prob_sum = th.sum(nodes.mailbox['ml'],dim=1)
+    def reduce_func_prob(self,nodes):
+        prob_sum = th.sum(nodes.mailbox['mp'],dim=1)
         #prob_sum = th.sum(nodes.mailbox['ml'] * nodes.mailbox['w'], dim=1)
-        prob_mean = th.mean(nodes.mailbox['ml'], dim=1).unsqueeze(1)
-        prob_dev = th.sum(th.abs(nodes.mailbox['ml']-prob_mean),dim=1)
+        prob_mean = th.mean(nodes.mailbox['mp'], dim=1).unsqueeze(1)
+        prob_dev = th.sum(th.abs(nodes.mailbox['mp']-prob_mean),dim=1)
         #prob_dev = th.sum(th.pow(nodes.mailbox['ml'] - prob_mean,2), dim=1)
-
 
         return {'prob_sum':prob_sum,'prob_dev':prob_dev}
 
@@ -549,15 +548,15 @@ class TimeConv(nn.Module):
                     graph.ndata['id'] = th.zeros((graph.number_of_nodes(), 1), dtype=th.int64).to(device)
                     graph.ndata['id'][POs] = th.tensor(range(len(POs)), dtype=th.int64).unsqueeze(-1).to(device)
                     #print(graph.number_of_edges(etype='pi2po'),len(POs))
-                    graph.pull(POs, self.message_func_loss, self.reduce_func_loss, etype='pi2po')
+                    graph.pull(POs, self.message_func_prob, self.reduce_func_prob, etype='pi2po')
                     POs_criticalprob = None
-                    graph.pull(POs, self.message_func_prob, fn.sum('mp', 'prob'), etype='pi2po')
-                    POs_criticalprob = graph.ndata['prob'][POs]
+
+                    POs_criticalprob = graph.ndata['prob_sum'][POs]
 
                     # graph.pull(POs, fn.copy_src('delay','md'), fn.mean('md', 'di'), etype='pi2po')
                     #
                     # nodes_dst += graph.ndata['delay']
-                    PIs_mask = graph.ndata['is_pi'] == 1
+                    #PIs_mask = graph.ndata['is_pi'] == 1
                     # PIs_dst = th.transpose(nodes_dst[PIs_mask], 0, 1)
                     # POs_maxDst_idx = th.argmax(PIs_dst, dim=1)
                     # POs_delay_d = graph.ndata['delay'][POs_maxDst_idx]
@@ -730,7 +729,14 @@ class TimeConv(nn.Module):
                     h = th.cat((rst,self.mlp_w(1-prob_sum)*h_global),dim=1)
                 elif self.global_cat_choice == 5:
                     h = th.cat((h,self.mlp_w(1-prob_sum)*h_global),dim=1)
-                rst = self.mlp_out_new(h)
+
+                if self.global_out_choice == 0:
+                    rst = self.mlp_out_new(h)
+                else:
+                    mask =prob_sum.squeeze(1)>0.5
+                    rst = self.mlp_out_new(h)
+                    #print(h[mask].shape)
+                    rst[mask] = self.mlp_out_new2(h[mask])
 
                 return  rst,prob_sum, prob_dev,POs_criticalprob
 
@@ -749,12 +755,10 @@ class ACCNN(nn.Module):
         self.flag_homo = flag_homo
 
         if self.flag_homo:
-            self.mlp_agg = MLP(hidden_dim, int(hidden_dim / 2), hidden_dim)
+            self.mlp_agg = MLP(hidden_dim+ infeat_dim, int(hidden_dim / 2), hidden_dim)
         else:
-            neigh_dim_m = hidden_dim + infeat_dim
-            neigh_dim_g = hidden_dim + infeat_dim
-            self.mlp_agg_module = MLP(neigh_dim_m, int(hidden_dim / 2), hidden_dim)
-            self.mlp_agg_gate = MLP(neigh_dim_g, int(hidden_dim / 2), hidden_dim)
+            self.mlp_agg_module = MLP(hidden_dim + infeat_dim, int(hidden_dim / 2), hidden_dim)
+            self.mlp_agg_gate = MLP(hidden_dim + infeat_dim, int(hidden_dim / 2), hidden_dim)
         self.mlp_pi = MLP(4, int(hidden_dim / 2), hidden_dim)
         self.mlp_out = MLP( hidden_dim,hidden_dim,1)
 

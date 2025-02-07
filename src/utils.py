@@ -128,15 +128,6 @@ def add_reverse_edges(graph):
     return new_graph
 
 
-def gen_topo(graph, flag_reverse=False):
-    src_module, dst_module = graph.edges(etype='intra_module', form='uv')
-    src_gate, dst_gate = graph.edges(etype='intra_gate', form='uv')
-    g = dgl.graph((th.cat([src_module, src_gate]), th.cat([dst_module, dst_gate])))
-    topo = dgl.topological_nodes_generator(g, reverse=flag_reverse)
-
-    return topo
-
-
 
 def reverse_graph(g):
     edges = g.edges()
