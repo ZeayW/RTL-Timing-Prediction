@@ -507,7 +507,7 @@ def test(model,test_data,flag_reverse):
                     prob_mask = POs_criticalprob<=0.5
                     new_POs = POs[prob_mask]
                     graphs_info['POs'] = new_POs
-                    sampled_graphs.ndata['is_po'] = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
+                    sampled_graphs.ndata['is_po'] = th.zeros((sampled_graphs.number_of_nodes(),1)).to(device)
                     sampled_graphs.ndata['is_po'][new_POs] = 1
                     graphs_info['POs_mask'] = new_POs
                     POs_label = POs_label[prob_mask]
