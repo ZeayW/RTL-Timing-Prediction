@@ -189,7 +189,7 @@ def init(seed):
 
 def gather_data(sampled_data,idx,flag_path):
 
-    POs_label_all, PIs_delay_all = None, None
+    POs_label_all, PIs_delay_all,POs_criticalprob_all = None, None,None
     start_idx = 0
     new_POs = None
     new_edges, new_edges_weight = ([], []), []
@@ -209,6 +209,7 @@ def gather_data(sampled_data,idx,flag_path):
 
         if len(data['delay-label_pairs'][idx]) == 5:
             POs_criticalprob = data['delay-label_pairs'][idx][4]
+            POs_criticalprob_all = cat_tensor(POs_criticalprob_all, th.tensor(POs_criticalprob, dtype=th.float).unsqueeze(-1).to(device))
 
         if len(data['delay-label_pairs'][idx]) == 6:
             abnormal_POs, normal_POs = data['delay-label_pairs'][idx][4:]
@@ -225,7 +226,7 @@ def gather_data(sampled_data,idx,flag_path):
 
         start_idx += graph.number_of_nodes()
 
-    return POs_label_all, PIs_delay_all, new_edges, new_edges_weight, new_POs
+    return POs_label_all, PIs_delay_all, new_edges, new_edges_weight, POs_criticalprob_all
 
 
 def inference(model,test_data,batch_size,usage,save_path,flag_save=False):
@@ -479,26 +480,39 @@ def test(model,test_data,flag_reverse):
             graphs_info['POs_mask'] = (sampled_graphs.ndata['is_po'] == 1).squeeze(-1).to(device)
             POs_topolevel = sampled_graphs.ndata['PO_feat'][sampled_graphs.ndata['is_po'] == 1].to(device)
             graphs_info['POs_feat'] = POs_topolevel
-            if flag_reverse:
+            nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
+            POs = nodes_list[sampled_graphs.ndata['is_po'] == 1]
+            if flag_reverse or options.flag_path_supervise:
                 topo_r = gen_topo(sampled_graphs, flag_reverse=True)
                 graphs_info['topo_r'] = [l.to(device) for l in topo_r]
                 nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
                 POs = nodes_list[sampled_graphs.ndata['is_po'] == 1]
-                graphs_info['POs'] = POs.detach().cpu().numpy().tolist()
+                graphs_info['POs'] = POs
                 sampled_graphs.ndata['hd'] = -1000*th.ones((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
                 sampled_graphs.ndata['hp'] = th.zeros((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
-                for k, po in enumerate(POs):
+                for k, po in enumerate(POs.detach().cpu().numpy().tolist()):
                     sampled_graphs.ndata['hp'][po][k] = 1
                     sampled_graphs.ndata['hd'][po][k] = 0
 
             for j in range(num_cases):
-                POs_label, PIs_delay, new_edges, new_edges_weight, new_POs = gather_data(sampled_data,j,options.flag_path_supervise)
+                POs_label, PIs_delay, new_edges, new_edges_weight, POs_criticalprob = gather_data(sampled_data,j,options.flag_path_supervise)
                 if flag_reverse and (options.flag_path_supervise or options.global_cat_choice in [3,4,5]):
                     new_edges_feat = {}
                     if len(new_edges_weight)>0:
                         new_edges_feat = {'w': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1).to(device)}
                     sampled_graphs.add_edges(th.tensor(new_edges[0]).to(device), th.tensor(new_edges[1]).to(device),
                                              etype='pi2po')
+
+                if POs_criticalprob is not None:
+                    prob_mask = POs_criticalprob<=0.5
+                    new_POs = POs[prob_mask]
+                    graphs_info['POs'] = new_POs
+                    sampled_graphs.ndata['is_po'] = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
+                    sampled_graphs.ndata['is_po'][new_POs] = 1
+                    graphs_info['POs_mask'] = new_POs
+
+
+
                 if new_POs is not None:
                     new_po_mask = th.zeros((sampled_graphs.number_of_nodes(),1),dtype=th.float)
                     new_po_mask[new_POs] = 1
@@ -636,15 +650,17 @@ def train(model):
             POs_topolevel = sampled_graphs.ndata['PO_feat'][sampled_graphs.ndata['is_po'] == 1].to(device)
             graphs_info['POs_feat'] = POs_topolevel
             graphs_info['topo'] = [l.to(device) for l in topo_levels]
+            nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
+            POs = nodes_list[sampled_graphs.ndata['is_po'] == 1]
             if flag_reverse or flag_path:
                 topo_r = gen_topo(sampled_graphs, flag_reverse=True)
                 graphs_info['topo_r'] = [l.to(device) for l in topo_r]
                 nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
                 POs = nodes_list[sampled_graphs.ndata['is_po'] == 1]
-                graphs_info['POs'] = POs.detach().cpu().numpy().tolist()
+                graphs_info['POs'] = POs
                 sampled_graphs.ndata['hd'] = -1000*th.ones((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
                 sampled_graphs.ndata['hp'] = th.zeros((sampled_graphs.number_of_nodes(), len(POs)), dtype=th.float).to(device)
-                for i, po in enumerate(POs):
+                for i, po in enumerate(POs.detach().cpu().numpy().tolist()):
                     sampled_graphs.ndata['hp'][po][i] = 1
                     sampled_graphs.ndata['hd'][po][i] = 0
 
@@ -662,6 +678,14 @@ def train(model):
                         new_edges_feat = {'w': th.tensor(new_edges_weight, dtype=th.float).unsqueeze(1).to(device)}
                     sampled_graphs.add_edges(th.tensor(new_edges[0]).to(device), th.tensor(new_edges[1]).to(device),
                                     etype='pi2po')
+
+                if POs_criticalprob is not None:
+                    prob_mask = POs_criticalprob<=0.5
+                    new_POs = POs[prob_mask]
+                    graphs_info['POs'] = new_POs
+                    sampled_graphs.ndata['is_po'] = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
+                    sampled_graphs.ndata['is_po'][new_POs] = 1
+                    graphs_info['POs_mask'] = new_POs
 
                 if new_POs is not None:
                     new_po_mask = th.zeros((sampled_graphs.number_of_nodes(), 1), dtype=th.float)

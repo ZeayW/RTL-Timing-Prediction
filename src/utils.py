@@ -27,7 +27,7 @@ class GraphProp(nn.Module):
                 if self.flag_distance:
                     graph.pull(nodes, self.message_func_distance, fn.max('m', self.featname),self.nodes_func_distance)
                 else:
-                    graph.pull(nodes, fn.copy_src(self.featname, 'm'), fn.max('m', self.featname))
+                    graph.pull(nodes, fn.copy_u(self.featname, 'm'), fn.max('m', self.featname))
 
             return graph.ndata[self.featname]
 

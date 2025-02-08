@@ -821,33 +821,3 @@ class ACCNN(nn.Module):
 
             return rst,prob_sum, prob_dev,POs_criticalprob
 
-class GraphBackProp(nn.Module):
-
-    def __init__(self,featname):
-        super(GraphBackProp, self).__init__()
-        self.featname = featname
-
-    def nodes_func_delay(self,nodes):
-        h = nodes.data['neigh'] + 1
-        return {'delay':h}
-
-    def forward(self, graph):
-        topo_r = dgl.topological_nodes_generator(graph,reverse=True)
-        with graph.local_scope():
-            #propagate messages in the topological order, from PIs to POs
-            for i, nodes in enumerate(topo_r[1:]):
-                isModule_mask = graph.ndata['is_module'][nodes] == 1
-                isGate_mask = graph.ndata['is_module'][nodes] == 0
-                nodes_gate = nodes[isGate_mask]
-                nodes_module = nodes[isModule_mask]
-
-
-                graph.pull(nodes, fn.copy_src(self.featname, 'm'), fn.max('m', self.featname))
-
-
-
-            return graph.ndata[self.featname]
-
-
-
-
