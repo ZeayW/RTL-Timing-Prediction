@@ -697,12 +697,12 @@ def train(model):
                     # print(len(new_POs),len(nodes_list[sampled_graphs.ndata['is_po']==1]),len(nodes_list[shared_po]))
                     sampled_graphs.ndata['is_po'] = new_po_mask
                     graphs_info['POs'] = new_POs.detach().cpu().numpy().tolist()
-                    POs = new_POs
+
                     sampled_graphs.ndata['hd'] = -1000 * th.ones((sampled_graphs.number_of_nodes(), len(POs)),
                                                                  dtype=th.float).to(device)
                     sampled_graphs.ndata['hp'] = th.zeros((sampled_graphs.number_of_nodes(), len(POs)),
                                                           dtype=th.float).to(device)
-                    for j, po in enumerate(POs):
+                    for j, po in enumerate(new_POs):
                         sampled_graphs.ndata['hp'][po][j] = 1
                         sampled_graphs.ndata['hd'][po][j] = 0
 
