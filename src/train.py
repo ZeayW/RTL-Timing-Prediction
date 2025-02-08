@@ -510,19 +510,15 @@ def test(model,test_data,flag_reverse):
                     sampled_graphs.ndata['is_po'] = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
                     sampled_graphs.ndata['is_po'][new_POs] = 1
                     graphs_info['POs_mask'] = new_POs
+                    POs_label = POs_label[prob_mask]
+                    sampled_graphs.ndata['hd'] = -1000 * th.ones((sampled_graphs.number_of_nodes(), len(new_POs)),
+                                                                 dtype=th.float).to(device)
+                    sampled_graphs.ndata['hp'] = th.zeros((sampled_graphs.number_of_nodes(), len(new_POs)),
+                                                          dtype=th.float).to(device)
+                    for j, po in enumerate(new_POs):
+                        sampled_graphs.ndata['hp'][po][j] = 1
+                        sampled_graphs.ndata['hd'][po][j] = 0
 
-
-
-                if new_POs is not None:
-                    new_po_mask = th.zeros((sampled_graphs.number_of_nodes(),1),dtype=th.float)
-                    new_po_mask[new_POs] = 1
-                    new_po_mask = new_po_mask.squeeze(1).to(device)
-                    #nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
-                    #shared_po = th.logical_and(sampled_graphs.ndata['is_po']==1, new_po_mask==1)
-                    #print(len(new_POs),len(nodes_list[sampled_graphs.ndata['is_po']==1]),len(nodes_list[shared_po]))
-                    sampled_graphs.ndata['is_po'] = new_po_mask
-                    graphs_info['POs_mask'] = (sampled_graphs.ndata['is_po'] == 1).squeeze(-1).to(device)
-                    graphs_info['POs'] = new_POs.detach().cpu().numpy().tolist()
 
                 graphs_info['label'] = POs_label
                 sampled_graphs.ndata['delay'] = th.zeros((sampled_graphs.number_of_nodes(), 1), dtype=th.float).to(device)
@@ -687,24 +683,14 @@ def train(model):
                     sampled_graphs.ndata['is_po'][new_POs] = 1
                     graphs_info['POs_mask'] = new_POs
                     POs_label = POs_label[prob_mask]
-
-                if new_POs is not None:
-                    new_po_mask = th.zeros((sampled_graphs.number_of_nodes(), 1), dtype=th.float)
-                    new_po_mask[new_POs] = 1
-                    new_po_mask = new_po_mask.squeeze(1).to(device)
-                    # nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
-                    # shared_po = th.logical_and(sampled_graphs.ndata['is_po']==1, new_po_mask==1)
-                    # print(len(new_POs),len(nodes_list[sampled_graphs.ndata['is_po']==1]),len(nodes_list[shared_po]))
-                    sampled_graphs.ndata['is_po'] = new_po_mask
-                    graphs_info['POs'] = new_POs.detach().cpu().numpy().tolist()
-
-                    sampled_graphs.ndata['hd'] = -1000 * th.ones((sampled_graphs.number_of_nodes(), len(POs)),
+                    sampled_graphs.ndata['hd'] = -1000 * th.ones((sampled_graphs.number_of_nodes(), len(new_POs)),
                                                                  dtype=th.float).to(device)
-                    sampled_graphs.ndata['hp'] = th.zeros((sampled_graphs.number_of_nodes(), len(POs)),
+                    sampled_graphs.ndata['hp'] = th.zeros((sampled_graphs.number_of_nodes(), len(new_POs)),
                                                           dtype=th.float).to(device)
                     for j, po in enumerate(new_POs):
                         sampled_graphs.ndata['hp'][po][j] = 1
                         sampled_graphs.ndata['hd'][po][j] = 0
+
 
                 graphs_info['POs_mask'] = (sampled_graphs.ndata['is_po'] == 1).squeeze(-1).to(device)
 
