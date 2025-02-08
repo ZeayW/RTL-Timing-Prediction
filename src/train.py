@@ -226,7 +226,9 @@ def gather_data(sampled_data,idx,flag_path):
 
         start_idx += graph.number_of_nodes()
 
-    return POs_label_all, PIs_delay_all, new_edges, new_edges_weight, POs_criticalprob_all.squeeze(1)
+    if POs_criticalprob_all is not None:
+        POs_criticalprob_all = POs_criticalprob_all.squeeze(1)
+    return POs_label_all, PIs_delay_all, new_edges, new_edges_weight, POs_criticalprob_all
 
 
 def inference(model,test_data,batch_size,usage,save_path,flag_save=False):
@@ -555,9 +557,9 @@ def train(model):
     print(options)
     th.multiprocessing.set_sharing_strategy('file_system')
 
-    train_data = load_data('train')
-    val_data = load_data('val')
-    test_data = load_data('test')
+    train_data = load_data('train',options.quick)
+    val_data = load_data('val',options.quick)
+    test_data = load_data('test',options.quick)
     print("Data successfully loaded")
 
     train_idx_loader = get_idx_loader(train_data,options.batch_size)
@@ -645,6 +647,7 @@ def train(model):
 
             POs_topolevel = sampled_graphs.ndata['PO_feat'][sampled_graphs.ndata['is_po'] == 1].to(device)
             graphs_info['POs_feat'] = POs_topolevel
+            graphs_info['POs_mask'] = (sampled_graphs.ndata['is_po'] == 1).squeeze(-1).to(device)
             graphs_info['topo'] = [l.to(device) for l in topo_levels]
             nodes_list = th.tensor(range(sampled_graphs.number_of_nodes())).to(device)
             POs = nodes_list[sampled_graphs.ndata['is_po'] == 1]
