@@ -402,12 +402,13 @@ class TimeConv(nn.Module):
 
     def reduce_func_prob(self,nodes):
         prob_sum = th.sum(nodes.mailbox['mp'],dim=1)
+        prob_max = th.max(nodes.mailbox['mp'],dim=1).values
         #prob_sum = th.sum(nodes.mailbox['ml'] * nodes.mailbox['w'], dim=1)
         prob_mean = th.mean(nodes.mailbox['mp'], dim=1).unsqueeze(1)
         prob_dev = th.sum(th.abs(nodes.mailbox['mp']-prob_mean),dim=1)
         #prob_dev = th.sum(th.pow(nodes.mailbox['ml'] - prob_mean,2), dim=1)
 
-        return {'prob_sum':prob_sum,'prob_dev':prob_dev}
+        return {'prob_max':prob_max,'prob_sum':prob_sum,'prob_dev':prob_dev}
 
     def prop_delay(self,graph,graph_info):
         topo = graph_info['topo']
@@ -657,7 +658,7 @@ class TimeConv(nn.Module):
 
                     # exit()
                     #path_loss = th.mean(graph.ndata['loss'][POs])
-                    prob_sum = graph.ndata['prob_sum'][POs]
+                    prob_sum = graph.ndata['prob_sum'][POs] + graph.ndata['prob_max'][POs]
                     prob_dev = graph.ndata['prob_dev'][POs]
 
 
