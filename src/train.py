@@ -316,12 +316,6 @@ def inference(model,test_data,batch_size,usage,save_path,flag_save=False):
                 POs_label, PIs_delay, sampled_graphs, graphs_info = gather_data(sampled_data, sampled_graphs,
                                                                                 graphs_info, j, flag_addedge)
                 cur_labels_hat, prob_sum,prob_dev,cur_POs_criticalprob = model(sampled_graphs, graphs_info)
-                new_edges = [[], []]
-                new_edges[0] = sampled_graphs.edges(etype='pi2po')[0].detach().cpu().numpy().tolist()
-                new_edges[1] = sampled_graphs.edges(etype='pi2po')[1].detach().cpu().numpy().tolist()
-
-                if flag_addedge:
-                    sampled_graphs.remove_edges(sampled_graphs.edges('all', etype='pi2po')[2], etype='pi2po')
 
                 labels_hat = cat_tensor(labels_hat,cur_labels_hat)
                 labels = cat_tensor(labels,POs_label)
@@ -330,6 +324,11 @@ def inference(model,test_data,batch_size,usage,save_path,flag_save=False):
                 if not options.flag_path_supervise:
                     continue
 
+                new_edges = [[], []]
+                new_edges[0] = sampled_graphs.edges(etype='pi2po')[0].detach().cpu().numpy().tolist()
+                new_edges[1] = sampled_graphs.edges(etype='pi2po')[1].detach().cpu().numpy().tolist()
+                if flag_addedge:
+                    sampled_graphs.remove_edges(sampled_graphs.edges('all', etype='pi2po')[2], etype='pi2po')
                 data['delay-label_pairs'][j] = (
                     PIs_delay, POs_label, None, new_edges, cur_POs_criticalprob.detach().cpu().numpy().tolist())
 
