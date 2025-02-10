@@ -658,9 +658,8 @@ class TimeConv(nn.Module):
 
                     # exit()
                     #path_loss = th.mean(graph.ndata['loss'][POs])
-                    prob_sum = graph.ndata['prob_sum'][POs] + graph.ndata['prob_max'][POs]
+                    prob_sum = graph.ndata['prob_sum'][POs]
                     prob_dev = graph.ndata['prob_dev'][POs]
-
 
 
                     #return rst, prob_sum,prob_dev,POs_criticalprob
