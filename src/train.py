@@ -23,7 +23,6 @@ import itertools
 
 
 
-
 options = get_options()
 device = th.device("cuda:" + str(options.gpu) if th.cuda.is_available() else "cpu")
 R2_score = R2Score().to(device)
@@ -223,6 +222,7 @@ def gather_data(sampled_data,sampled_graphs,graphs_info,idx,flag_addedge):
     if POs_criticalprob_all is not None:
         prob_mask = POs_criticalprob_all.squeeze(1) <= 0.5
         prob_mask = th.logical_and(POs_criticalprob_all.squeeze(1) >=0.1,POs_criticalprob_all.squeeze(1) < 0.5)
+        POs_label_all = POs_label_all[prob_mask]
         new_POs = graphs_info['POs_origin'][prob_mask]
         graphs_info['POs'] = new_POs
         sampled_graphs.ndata['is_po'] = th.zeros((sampled_graphs.number_of_nodes(), 1)).to(device)
@@ -237,6 +237,7 @@ def gather_data(sampled_data,sampled_graphs,graphs_info,idx,flag_addedge):
             sampled_graphs.ndata['hp'][po][j] = 1
             sampled_graphs.ndata['hd'][po][j] = 0
 
+
     graphs_info['label'] = POs_label_all
     sampled_graphs.ndata['delay'] = th.zeros((sampled_graphs.number_of_nodes(), 1), dtype=th.float).to(device)
     sampled_graphs.ndata['delay'][sampled_graphs.ndata['is_pi'] == 1] = PIs_delay_all
@@ -244,6 +245,7 @@ def gather_data(sampled_data,sampled_graphs,graphs_info,idx,flag_addedge):
     sampled_graphs.ndata['input_delay'][sampled_graphs.ndata['is_pi'] == 1] = PIs_delay_all
 
     return POs_label_all, PIs_delay_all, sampled_graphs,graphs_info
+
 
 
 
