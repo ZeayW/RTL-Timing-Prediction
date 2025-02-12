@@ -696,11 +696,7 @@ class TimeConv(nn.Module):
                 nodes_prob_tr = th.transpose(nodes_prob,0,1)
 
                 h_global = th.matmul(nodes_prob_tr,nodes_emb)
-                if self.global_info_choice==7:
-                    h_global = th.matmul(nodes_prob_tr, th.cat((nodes_emb,graph.ndata['degree']),dim=1))
-                elif self.global_info_choice==8:
-                    h_global = th.matmul(nodes_prob_tr, th.cat((nodes_emb,graph.ndata['feat']),dim=1))
-
+               
                 PIs_mask = graph.ndata['is_pi'] == 1
                 PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
 
