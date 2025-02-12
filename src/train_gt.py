@@ -109,15 +109,15 @@ def load_data(usage,flag_quick=True,flag_inference=False):
             graph.ndata['feat_i'] = th.cat((graph.ndata['feat_i'],nodes_topo),dim=1)
             if options.feat_choice == 3:
                 graph.ndata['feat_i'] = th.cat((graph.ndata['feat_i'], graph.ndata['degree']), dim=1)
-        elif options.feat_choice ==5:
+        elif options.feat_choice ==4:
             nodes_topo = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
             topo = gen_topo(graph)
             for i, nids in enumerate(topo):
                 nodes_topo[nids] = i
             graph.ndata['feat_i'] = nodes_topo
-        elif options.feat_choice == 6:
+        elif options.feat_choice == 5:
             graph.ndata['feat_i'] = graph.ndata['degree']
-            
+
         if len(graph_info['delay-label_pairs'][0][0])!= len(graph.ndata['is_pi'][graph.ndata['is_pi'] == 1]):
             print('skip',graph_info['design_name'])
             continue
@@ -143,8 +143,10 @@ def init_model(options):
     # model = Graphormer(infeat_dim=num_gate_types+num_module_types+1,
     #                    feat_dim=128,
     #                    hidden_dim=256)
-    in_size = num_gate_types+num_module_types+1
-    if options.feat_choice in [1,2]:
+    in_size = 1
+    if options.feat_choice in [0,1,2,3]:
+        in_size += num_gate_types+num_module_types
+    if options.feat_choice in [1,2,4,5]:
         in_size += 1
     elif options.feat_choice == 3:
         in_size += 2
@@ -319,6 +321,7 @@ def train(model):
                 if len(labels_hat) ==0:
                     continue
 
+                torch.cuda.empty_cache()
                 optim.zero_grad()
                 train_loss.backward()
                 optim.step()
