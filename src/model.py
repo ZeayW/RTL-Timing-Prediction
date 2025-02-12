@@ -8,6 +8,14 @@ from options import get_options
 options = get_options()
 device = th.device("cuda:" + str(options.gpu) if th.cuda.is_available() else "cpu")
 
+def cat_tensor(t1,t2):
+    if t1 is None:
+        return t2
+    elif t2 is None:
+        return t1
+    else:
+        return th.cat((t1,t2),dim=0)
+
 def get_nodename(nodes_name,nid):
     if nodes_name[nid][1] is not None:
         return nodes_name[nid][1]
@@ -702,7 +710,7 @@ class TimeConv(nn.Module):
                 elif self.global_info_choice == 3:
                     h_pi = th.matmul(PIs_prob, graph.ndata['delay'][PIs_mask])
                     h_global = th.cat((h_global, h_pi), dim=1)
-                elif self.global_info_choice in [4,7,8]:
+                elif self.global_info_choice in [4]:
                     nodes_delay, nodes_inputDelay = self.prop_delay(graph, graph_info)
                     h_d = nodes_inputDelay[POs]
                     h_global = th.cat((h_global, h_d), dim=1)
@@ -715,7 +723,13 @@ class TimeConv(nn.Module):
                     h_d = nodes_inputDelay[POs]
                     h_pi = th.matmul(PIs_prob, graph.ndata['delay'][PIs_mask])
                     h_global = th.cat((h_global, h_d,h_pi), dim=1)
-
+                elif self.global_info_choice in [7,8]:
+                    nodes_delay, nodes_inputDelay = self.prop_delay(graph, graph_info)
+                    h_d = nodes_inputDelay[POs]
+                    h_p =  th.matmul(nodes_prob_tr,graph.ndata['PE'])
+                    if self.global_info_choice == 8:
+                        h_p = self.mlp_pe(h_p)
+                    h_global = th.cat((h_global, h_d,h_p), dim=1)
 
                 if self.global_cat_choice == 0:
                     h = th.cat((rst,h_global),dim=1)
@@ -821,3 +835,64 @@ class ACCNN(nn.Module):
 
             return rst,prob_sum, prob_dev,POs_criticalprob
 
+
+
+class Graphormer(nn.Module):
+
+    def __init__(self,
+                 infeat_dim,
+                 feat_dim=512,
+                 hidden_dim=1024,
+                 num_heads=4):
+        super(Graphormer, self).__init__()
+
+        self.layers = th.nn.ModuleList([
+            dgl.nn.GraphormerLayer(
+            feat_size=feat_dim,  # the dimension of the input node features
+            hidden_size=hidden_dim,  # the dimension of the hidden layer
+            num_heads=num_heads,  # the number of attention heads
+            dropout=0.1,  # the dropout rate
+            activation=th.nn.ReLU(),  # the activation function
+            norm_first=False,  # whether to put the normalization before attention and feedforward
+        )
+        for _ in range(6)
+        ])
+
+        self.mlp_n =  MLP(infeat_dim, int(feat_dim/2), feat_dim)
+        self.mlp_out = MLP(feat_dim, int(feat_dim/2), 1)
+
+        self.degree_encoder = dgl.nn.DegreeEncoder(
+                max_degree=8,  # the maximum degree to cut off
+                embedding_dim=feat_dim  # the dimension of the degree embedding
+            )
+        self.spatial_encoder = dgl.nn.SpatialEncoder(
+                max_dist=5,  # the maximum distance between two nodes
+                num_heads=num_heads,  # the number of attention heads
+            )
+
+    def forward(self,graphs_info):
+        deg_emb = self.degree_encoder(th.stack((graphs_info['in_degree'],graphs_info['out_degree'])))
+        node_feat = self.mlp_n(graphs_info['node_feat_new'])
+        num_graphs, max_num_nodes,_ = node_feat.shape
+        # node feature + degree encoding as input
+        x = node_feat + deg_emb
+
+        # spatial encoding and path encoding serve as attention bias
+
+
+        spatial_encoding = self.spatial_encoder(graphs_info['dist'])
+        attn_bias = th.rand(num_graphs, max_num_nodes, max_num_nodes, self.num_heads)
+        #attn_bias = spatial_encoding
+        for layer in self.layers:
+            x = layer(
+                x,
+                attn_mask=graphs_info['attn_mask'],
+                attn_bias=attn_bias,
+            )
+
+        res = None
+        for i in range(x.shape[0]):
+            res = cat_tensor(res,x[i][graphs_info['POs_mask'][i]])
+            #print(graphs_info['POs_mask'][i].shape,x[i][graphs_info['POs_mask'][i]].shape)
+        res = self.mlp_out(res)
+        return res

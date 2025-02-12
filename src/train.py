@@ -20,6 +20,7 @@ import dgl
 import tee
 from utils import *
 import itertools
+from prepare_data_gt import collate
 
 
 
@@ -517,7 +518,7 @@ def train(model):
             for idx in idxs:
                 data = train_data[idx]
                 num_cases = min(num_cases,len(data['delay-label_pairs']))
-                #shuffle(train_data[idx]['delay-label_pairs'])
+                shuffle(train_data[idx]['delay-label_pairs'])
                 sampled_data.append(train_data[idx])
                 graphs.append(data['graph'])
 
@@ -526,6 +527,7 @@ def train(model):
 
             num_POs, totoal_path_loss,total_prob = 0,0,0
             total_labels,total_labels_hat = None,None
+
             for i in range(num_cases):
                 torch.cuda.empty_cache()
                 flag_addedge = flag_path or options.global_cat_choice in [3,4,5]
@@ -694,8 +696,8 @@ if __name__ == "__main__":
             #     model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
             #model.mlp_out_new = MLP(options.hidden_dim + 1, options.hidden_dim, 1)
 
-            # if options.pretrain_dir is not None:
-            #     model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
+            if options.pretrain_dir is not None:
+                model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
 
             new_out_dim = 0
             if options.global_info_choice in [0,1,2]:
@@ -704,14 +706,14 @@ if __name__ == "__main__":
                 new_out_dim += options.hidden_dim + 1
             elif options.global_info_choice in [6]:
                 new_out_dim += options.hidden_dim + 2
-            elif options.global_info_choice ==7:
-                new_out_dim += options.hidden_dim + 2
-            elif options.global_info_choice ==8:
-                new_out_dim += options.hidden_dim + 1 + num_module_types+num_gate_types
+            elif options.global_info_choice in [7,8]:
+                new_out_dim += options.hidden_dim + 64 + 1
+
             if options.global_cat_choice in [0,3,4]:
                 new_out_dim += 1
             elif options.global_cat_choice in [1,5]:
                 new_out_dim += options.hidden_dim
+
 
             if options.flag_reverse and new_out_dim!=0:
                 model.mlp_out_new = MLP(new_out_dim, options.hidden_dim, options.hidden_dim,1,negative_slope=0.1)
@@ -719,8 +721,8 @@ if __name__ == "__main__":
             # if options.global_cat_choice in [4,5]:
             #     model.mlp_w = MLP(1,32,1)
 
-            if options.pretrain_dir is not None:
-                model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
+            # if options.pretrain_dir is not None:
+            #     model.load_state_dict(th.load(options.pretrain_dir,map_location='cuda:{}'.format(options.gpu)))
 
             if options.global_cat_choice in [4,5]:
                 model.mlp_w = MLP(1,32,1)
@@ -728,6 +730,8 @@ if __name__ == "__main__":
             if options.global_out_choice == 1:
                 model.mlp_out_new2 = MLP(new_out_dim, options.hidden_dim, options.hidden_dim, 1, negative_slope=0.1)
 
+            if options.global_info_choice == 8:
+                model.mlp_pe = MLP(64,64,64)
             # if options.global_cat_choice in [4,5]:
             #     model.mlp_w = MLP(1,32,1)
 
