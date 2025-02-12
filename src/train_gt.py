@@ -100,16 +100,24 @@ def load_data(usage,flag_quick=True,flag_inference=False):
         graph.ndata['feat_i'] = graph.ndata['ntype'][:,3:]
 
         if options.feat_choice ==1:
-            graph.ndata['feat_i'] = th.cat((graph_info.ndata['feat_i'],graph.ndata['degree']),dim=1)
+            graph.ndata['feat_i'] = th.cat((graph.ndata['feat_i'],graph.ndata['degree']),dim=1)
         elif options.feat_choice in [2,3]:
             nodes_topo = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
             topo = gen_topo(graph)
             for i,nids in enumerate(topo):
                 nodes_topo[nids] = i
-            graph.ndata['feat_i'] = th.cat((graph_info.ndata['feat_i'],nodes_topo),dim=1)
+            graph.ndata['feat_i'] = th.cat((graph.ndata['feat_i'],nodes_topo),dim=1)
             if options.feat_choice == 3:
-                graph.ndata['feat_i'] = th.cat((graph_info.ndata['feat_i'], graph.ndata['degree']), dim=1)
-
+                graph.ndata['feat_i'] = th.cat((graph.ndata['feat_i'], graph.ndata['degree']), dim=1)
+        elif options.feat_choice ==5:
+            nodes_topo = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
+            topo = gen_topo(graph)
+            for i, nids in enumerate(topo):
+                nodes_topo[nids] = i
+            graph.ndata['feat_i'] = nodes_topo
+        elif options.feat_choice == 6:
+            graph.ndata['feat_i'] = graph.ndata['degree']
+            
         if len(graph_info['delay-label_pairs'][0][0])!= len(graph.ndata['is_pi'][graph.ndata['is_pi'] == 1]):
             print('skip',graph_info['design_name'])
             continue
@@ -156,21 +164,20 @@ def init(seed):
     np.random.seed(seed)
     random.seed(seed)
 
-def get_pos_encoding(g):
-    pos_encoding = dgl.laplacian_pe(g, k=options.pe_size, padding=True)
-    # transform = LapPE(k=128, feat_name='eigvec', eigval_name='eigval', padding=True)
-    # g = transform(g)
-    # eigvals, eigvecs = g.ndata['eigval'], g.ndata['eigvec']
-    # transformer_encoder = LapPosEncoder(
-    #     model_type="Transformer", num_layer=3, k=128, dim=64, n_head=4
-    # )
-    # pos_encoding=transformer_encoder(eigvals, eigvecs)
-    # deepset_encoder = LapPosEncoder(
-    #     model_type="DeepSet", num_layer=3, k=5, dim=16, num_post_layer=2
-    # )
-    # pos_encoding=deepset_encoder(eigvals, eigvecs)
-
-    return pos_encoding
+# def get_pos_encoding(g):
+#     # transform = LapPE(k=128, feat_name='eigvec', eigval_name='eigval', padding=True)
+#     # g = transform(g)
+#     # eigvals, eigvecs = g.ndata['eigval'], g.ndata['eigvec']
+#     # transformer_encoder = LapPosEncoder(
+#     #     model_type="Transformer", num_layer=3, k=128, dim=64, n_head=4
+#     # )
+#     # pos_encoding=transformer_encoder(eigvals, eigvecs)
+#     # deepset_encoder = LapPosEncoder(
+#     #     model_type="DeepSet", num_layer=3, k=5, dim=16, num_post_layer=2
+#     # )
+#     # pos_encoding=deepset_encoder(eigvals, eigvecs)
+#
+#     return pos_encoding
 
 
 def gather_data(sampled_data,sampled_graphs,idx):
@@ -207,7 +214,7 @@ def test(model,test_data,batch_size):
                 data = test_data[idx]
                 num_cases = min(num_cases,len(data['delay-label_pairs']))
                 sampled_data.append(test_data[idx])
-                data['graph'].ndata['PE'] = dgl.laplacian_pe(data['graph'], k=options.pe_size, padding=True)
+                #data['graph'].ndata['PE'] = dgl.laplacian_pe(data['graph'], k=options.pe_size, padding=True)
                 graphs.append(data['graph'])
 
             sampled_graphs = dgl.batch(graphs)
@@ -279,7 +286,7 @@ def train(model):
 
                 #data['graph'].ndata['PE'] = get_pos_encoding(data['graph'])
                 #print(data['graph'].ndata['PE'].shape)
-                data['graph'].ndata['PE'] = dgl.laplacian_pe(data['graph'], k=options.pe_size, padding=True)
+                #data['graph'].ndata['PE'] = dgl.laplacian_pe(data['graph'], k=options.pe_size, padding=True)
                 graphs.append(data['graph'])
 
             sampled_graphs = dgl.batch(graphs)
