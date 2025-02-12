@@ -91,7 +91,7 @@ class GTModel(nn.Module):
         in_size,
         out_size,
         hidden_size=80,
-        pos_enc_size=2,
+        pos_enc_size=16,
         num_layers=8,
         num_heads=8,
     ):
@@ -110,13 +110,14 @@ class GTModel(nn.Module):
             nn.Linear(hidden_size // 4, out_size),
         )
 
-    def forward(self, g, X, pos_enc):
-        indices = torch.stack(g.edges())
-        N = g.num_nodes()
-        A = dglsp.spmatrix(indices, shape=(N, N))
+    def forward(self, g,A):
+        X = g.ndata['feat']
+        pos_enc = g.ndata['PE']
         h = self.node_encoder(X) + self.pos_linear(pos_enc)
         for layer in self.layers:
             h = layer(A, h)
-        h = self.pooler(g, h)
+
+        h = h[g.ndata['is_po']==1]
+        # h = self.pooler(g, h)
 
         return self.predictor(h)

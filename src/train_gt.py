@@ -4,8 +4,7 @@ import dgl
 print(dgl.__version__)
 print(torch.__version__)
 
-from options import get_options
-from model import *
+
 import pickle
 import numpy as np
 import os
@@ -27,7 +26,8 @@ import itertools
 from gtmodel import GTModel
 from dgl import LapPE
 from dgl.nn import LapPosEncoder
-
+import dgl.sparse as dglsp
+from options_gt import get_options
 
 
 options = get_options()
@@ -89,15 +89,26 @@ def load_data(usage,flag_quick=True,flag_inference=False):
     print("------------Loading {}_data #{} {}-------------".format(usage,len(data),case_range))
 
     loaded_data = []
-    for  graph,graph_info in data:
+    for  i,(graph,graph_info) in enumerate(data):
+        #
+        # graph_homo = heter2homo(graph)
+        # graph.ndata['PE'] = dgl.laplacian_pe(graph_homo, k=options.pe_size, padding=True)
+        # loaded_data.append((graph,graph_info))
+        # continue
 
         graph = heter2homo(graph)
+        graph.ndata['feat_i'] = graph.ndata['ntype'][:,3:]
 
-        if options.inv_choice!=-1:
-            graph.edges['intra_module'].data['is_inv'] = graph.edges['intra_module'].data['is_inv'].unsqueeze(1)
-            graph.edges['intra_gate'].data['is_inv'] = graph.edges['intra_gate'].data['is_inv'].unsqueeze(1)
-        #graph.ndata['feat'] = graph.ndata['ntype']
-        graph.ndata['feat_type'] = graph.ndata['ntype'][:,3:]
+        if options.feat_choice ==1:
+            graph.ndata['feat_i'] = th.cat((graph_info.ndata['feat_i'],graph.ndata['degree']),dim=1)
+        elif options.feat_choice in [2,3]:
+            nodes_topo = th.zeros((graph.number_of_nodes(), 1), dtype=th.float)
+            topo = gen_topo(graph)
+            for i,nids in enumerate(topo):
+                nodes_topo[nids] = i
+            graph.ndata['feat_i'] = th.cat((graph_info.ndata['feat_i'],nodes_topo),dim=1)
+            if options.feat_choice == 3:
+                graph.ndata['feat_i'] = th.cat((graph_info.ndata['feat_i'], graph.ndata['degree']), dim=1)
 
         if len(graph_info['delay-label_pairs'][0][0])!= len(graph.ndata['is_pi'][graph.ndata['is_pi'] == 1]):
             print('skip',graph_info['design_name'])
@@ -107,95 +118,32 @@ def load_data(usage,flag_quick=True,flag_inference=False):
         graph_info['delay-label_pairs'] = graph_info['delay-label_pairs'][case_range[0]:case_range[1]]
         loaded_data.append(graph_info)
 
-    batch_size = options.batch_size
-    if not flag_inference and (not options.flag_reverse or options.flag_path_supervise) and usage!='train':
-        batch_size = len(loaded_data)
-
-
+    # with open('data_{}.pkl'.format(usage),'wb') as f:
+    #     pickle.dump(loaded_data,f)
+    # exit()
     return loaded_data
 
 def get_idx_loader(data,batch_size):
-    drop_last = False
+    drop_last = True
     sampler = SubsetRandomSampler(th.arange(len(data)))
     idx_loader = DataLoader([i for i in range(len(data))], sampler=sampler, batch_size=batch_size,
                             drop_last=drop_last)
     return idx_loader
 
-def collate(graphs):
-    # compute shortest path features, can be done in advance
-    for g in graphs:
-        spd = dgl.shortest_dist(g, root=None, return_paths=False)
-        g.ndata["spd"] = spd
-        #print(spd,spd.shape)
-
-    num_graphs = len(graphs)
-    num_nodes = [g.num_nodes() for g in graphs]
-    max_num_nodes = max(num_nodes)
-
-    POs_mask = []
-    attn_mask = th.zeros(num_graphs, max_num_nodes, max_num_nodes)
-    node_feat = []
-    in_degree, out_degree = [], []
-    path_data = []
-    # Since shortest_dist returns -1 for unreachable node pairs and padded
-    # nodes are unreachable to others, distance relevant to padded nodes
-    # use -1 padding as well.
-    dist = -th.ones(
-        (num_graphs, max_num_nodes, max_num_nodes), dtype=th.long
-    )
-
-    for i in range(num_graphs):
-        # A binary mask where invalid positions are indicated by True.
-        # Avoid the case where all positions are invalid.
-        attn_mask[i, :, num_nodes[i] + 1 :] = 1
-        nodes_list = th.tensor(range(graphs[i].number_of_nodes()))
-        POs = nodes_list[graphs[i].ndata["is_po"]==1]
-        POs_mask.append(POs)
-
-        # +1 to distinguish padded non-existing nodes from real nodes
-        node_feat.append(graphs[i].ndata["feat"] + 1)
-
-        # 0 for padding
-        in_degree.append(
-            th.clamp(graphs[i].in_degrees() + 1, min=0, max=512)
-        )
-        out_degree.append(
-            th.clamp(graphs[i].out_degrees() + 1, min=0, max=512)
-        )
-
-        dist[i, : num_nodes[i], : num_nodes[i]] = graphs[i].ndata["spd"]
-
-    # node feat padding
-    node_feat = th.nn.utils.rnn.pad_sequence(node_feat, batch_first=True)
-    #POs_mask = th.nn.utils.rnn.pad_sequence(POs_mask, batch_first=True)
-
-    # degree padding
-    in_degree = th.nn.utils.rnn.pad_sequence(in_degree, batch_first=True)
-    out_degree = th.nn.utils.rnn.pad_sequence(out_degree, batch_first=True)
-
-    # return {
-    #     'POs_mask': POs_mask,
-    #     'node_feat': node_feat,
-    #     'in_degree': in_degree,
-    #     'out_degree': out_degree,
-    #     'attn_mask': attn_mask,
-    #     'dist': dist
-    # }
-
-    return {
-        'POs_mask':POs_mask,
-        'node_feat':node_feat.to(device),
-        'in_degree':in_degree.to(device),
-        'out_degree':out_degree.to(device),
-        'attn_mask':attn_mask.to(device),
-        'dist':dist.to(device)
-    }
 
 def init_model(options):
     # model = Graphormer(infeat_dim=num_gate_types+num_module_types+1,
     #                    feat_dim=128,
     #                    hidden_dim=256)
-    model = GTModel(in_size=num_gate_types+num_module_types+1,out_size=1,hidden_size=256)
+    in_size = num_gate_types+num_module_types+1
+    if options.feat_choice in [1,2]:
+        in_size += 1
+    elif options.feat_choice == 3:
+        in_size += 2
+    model = GTModel(in_size=in_size,
+                    out_size=1,
+                    hidden_size=options.hidden_dim,
+                    pos_enc_size=options.pe_size)
     print("creating model:")
     print(model)
 
@@ -209,14 +157,14 @@ def init(seed):
     random.seed(seed)
 
 def get_pos_encoding(g):
-    transform = LapPE(k=5, feat_name='eigvec', eigval_name='eigval', padding=True)
-    g = dgl.graph(([0, 1, 2, 3, 4, 2, 3, 1, 4, 0], [2, 3, 1, 4, 0, 0, 1, 2, 3, 4]))
-    g = transform(g)
-    eigvals, eigvecs = g.ndata['eigval'], g.ndata['eigvec']
-    transformer_encoder = LapPosEncoder(
-        model_type="Transformer", num_layer=3, k=5, dim=16, n_head=4
-    )
-    pos_encoding=transformer_encoder(eigvals, eigvecs)
+    pos_encoding = dgl.laplacian_pe(g, k=options.pe_size, padding=True)
+    # transform = LapPE(k=128, feat_name='eigvec', eigval_name='eigval', padding=True)
+    # g = transform(g)
+    # eigvals, eigvecs = g.ndata['eigval'], g.ndata['eigvec']
+    # transformer_encoder = LapPosEncoder(
+    #     model_type="Transformer", num_layer=3, k=128, dim=64, n_head=4
+    # )
+    # pos_encoding=transformer_encoder(eigvals, eigvecs)
     # deepset_encoder = LapPosEncoder(
     #     model_type="DeepSet", num_layer=3, k=5, dim=16, num_post_layer=2
     # )
@@ -238,7 +186,7 @@ def gather_data(sampled_data,sampled_graphs,idx):
     #graphs_info['label'] = POs_label_all
     feat_delay = th.zeros((sampled_graphs.number_of_nodes(), 1), dtype=th.float).to(device)
     feat_delay[sampled_graphs.ndata['is_pi'] == 1] = PIs_delay_all
-    sampled_graphs.ndata['feat'] = th.cat((sampled_graphs.ndata['feat_type'],feat_delay),dim=1)
+    sampled_graphs.ndata['feat'] = th.cat((sampled_graphs.ndata['feat_i'],feat_delay),dim=1)
 
 
     return POs_label_all, sampled_graphs
@@ -248,15 +196,10 @@ def gather_data(sampled_data,sampled_graphs,idx):
 
 def test(model,test_data,batch_size):
 
-
-    test_idx_loader = get_idx_loader(test_data, batch_size)
-    model.flag_train = False
     with (th.no_grad()):
         labels_all,labels_hat_all = None,None
-        # for i in range(0,len(test_data),batch_size):
-        #     idxs = list(range(i,min(i+batch_size,len(test_data))))
-        for batch, idxs in enumerate(test_idx_loader):
-            idxs = idxs.numpy().tolist()
+        for i in range(0,len(test_data),batch_size):
+            idxs = list(range(i,min(i+batch_size,len(test_data))))
             sampled_data = []
             num_cases = 100
             graphs = []
@@ -264,29 +207,22 @@ def test(model,test_data,batch_size):
                 data = test_data[idx]
                 num_cases = min(num_cases,len(data['delay-label_pairs']))
                 sampled_data.append(test_data[idx])
+                data['graph'].ndata['PE'] = dgl.laplacian_pe(data['graph'], k=options.pe_size, padding=True)
                 graphs.append(data['graph'])
-            graphs_info = collate(graphs)
 
-
-
+            sampled_graphs = dgl.batch(graphs)
+            sampled_graphs = sampled_graphs.to(device)
+            indices = torch.stack(sampled_graphs.edges())
+            N = sampled_graphs.num_nodes()
+            A = dglsp.spmatrix(indices, shape=(N, N))
 
             for i in range(num_cases):
                 node_delay = []
                 labels = None
                 torch.cuda.empty_cache()
-                for data in sampled_data:
-                    g = data['graph']
-                    PIs_delay, POs_label, _, _ = data['delay-label_pairs'][i][:4]
-                    PIs_delay = th.tensor(PIs_delay, dtype=th.float).unsqueeze(-1).to(device)
-                    POs_label = th.tensor(POs_label, dtype=th.float).unsqueeze(-1).to(device)
-                    labels = cat_tensor(labels, POs_label)
-                    delay = th.zeros((g.number_of_nodes(), 1), dtype=th.float).to(device)
-                    delay[g.ndata['is_pi'] == 1] = PIs_delay
-                    node_delay.append(delay + 1)
-                node_delay_t = th.nn.utils.rnn.pad_sequence(node_delay, batch_first=True)
-                graphs_info['ndoe_feat'] = th.cat((graphs_info['node_feat'], node_delay_t), dim=2)
+                labels, sampled_graphs = gather_data(sampled_data, sampled_graphs, i)
 
-                labels_hat = model(graphs_info)
+                labels_hat = model(sampled_graphs,A)
 
                 labels_hat_all = cat_tensor(labels_hat_all,labels_hat)
                 labels_all = cat_tensor(labels_all,labels)
@@ -330,6 +266,7 @@ def train(model):
             torch.cuda.empty_cache()
             sampled_data = []
 
+
             idxs = idxs.numpy().tolist()
             num_cases = 1000
             graphs = []
@@ -337,36 +274,30 @@ def train(model):
             for idx in idxs:
                 data = train_data[idx]
                 num_cases = min(num_cases,len(data['delay-label_pairs']))
-                #shuffle(train_data[idx]['delay-label_pairs'])
+                shuffle(train_data[idx]['delay-label_pairs'])
                 sampled_data.append(train_data[idx])
 
-                data['graph'].ndata['PE'] = get_pos_encoding(data['graph'])
+                #data['graph'].ndata['PE'] = get_pos_encoding(data['graph'])
+                #print(data['graph'].ndata['PE'].shape)
+                data['graph'].ndata['PE'] = dgl.laplacian_pe(data['graph'], k=options.pe_size, padding=True)
                 graphs.append(data['graph'])
 
             sampled_graphs = dgl.batch(graphs)
             sampled_graphs = sampled_graphs.to(device)
-
-
-
-            graphs_info = collate(graphs)
-
+            indices = torch.stack(sampled_graphs .edges())
+            N = sampled_graphs .num_nodes()
+            A = dglsp.spmatrix(indices, shape=(N, N))
 
             total_labels,total_labels_hat = None,None
 
+            #num_cases = 1
             for i in range(num_cases):
-                labels = None
-                node_delay = []
                 torch.cuda.empty_cache()
-                POs_label_all, sampled_graphs = gather_data(sampled_data, sampled_graphs, i)
-
-                labels_hat = model(sampled_graphs,sampled_graphs.ndata['feat'],sampled_graphs.ndata['PE'])
-
+                labels, sampled_graphs = gather_data(sampled_data, sampled_graphs, i)
+                labels_hat = model(sampled_graphs,A)
                 train_loss = Loss(labels_hat, labels)
-                print(train_loss)
-
                 total_labels = cat_tensor(total_labels, labels)
                 total_labels_hat = cat_tensor(total_labels_hat, labels_hat)
-
 
                 if i==num_cases-1:
                     train_r2 = R2_score(total_labels_hat, total_labels)
@@ -418,7 +349,7 @@ if __name__ == "__main__":
         options.quick = input_options.quick
 
         print(options)
-        # exit()
+
         model = init_model(options)
 
         model = model.to(device)
@@ -428,11 +359,10 @@ if __name__ == "__main__":
         for usage in usages:
             flag_save = True
             save_file_dir = options.checkpoint
-            test_data = load_data(usage,options.quick,flag_inference)
+            test_data = load_data(usage,options.quick)
 
-            #test_loss, test_r2, test_mape, test_min_ratio, test_max_ratio = test(model, test_data,options.flag_reverse)
+            test_loss, test_r2, test_mape, test_min_ratio, test_max_ratio = test(model, test_data,options.batch_size)
 
-            test_loss, test_r2,test_mape,test_min_ratio,test_max_ratio = inference(model, test_data,options.batch_size,usage,save_file_dir,flag_save)
             print(
                 '\ttest: loss={:.3f}\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(test_loss, test_r2,
                                                                                                          test_mape,test_min_ratio,test_max_ratio))

@@ -4,8 +4,7 @@ from torch import nn
 from dgl import function as fn
 from options import get_options
 
-options = get_options()
-device = th.device("cuda:" + str(options.gpu) if th.cuda.is_available() and options.gpu is not None else "cpu")
+device = th.device("cuda:0" if th.cuda.is_available()  else "cpu")
 
 class GraphProp(nn.Module):
 
