@@ -20,7 +20,6 @@ import dgl
 import tee
 from utils import *
 import itertools
-from prepare_data_gt import collate
 
 
 

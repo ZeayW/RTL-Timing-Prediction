@@ -3,6 +3,7 @@ import dgl
 import torch as th
 from torch import nn
 from dgl import function as fn
+from xgboost import XGBRegressor
 from utils import *
 from options import get_options
 options = get_options()
@@ -696,7 +697,7 @@ class TimeConv(nn.Module):
                 nodes_prob_tr = th.transpose(nodes_prob,0,1)
 
                 h_global = th.matmul(nodes_prob_tr,nodes_emb)
-               
+
                 PIs_mask = graph.ndata['is_pi'] == 1
                 PIs_prob = th.transpose(nodes_prob[PIs_mask], 0, 1)
 
@@ -831,6 +832,22 @@ class ACCNN(nn.Module):
 
             return rst,prob_sum, prob_dev,POs_criticalprob
 
+
+class PathModel(nn.Module):
+    def __init__(self,infeat_dim,hidden_dim,impl_choice=0):
+        super(PathModel, self).__init__()
+        self.impl_choice = impl_choice
+        if impl_choice == 0:
+            self.model = MLP(infeat_dim,hidden_dim,hidden_dim,1)
+        elif impl_choice==1:
+            self.model = XGBRegressor(n_estimators=500, max_depth=100, nthread=25)
+    def forward(self,POs_feat):
+        rst = th.zeros((len(POs_feat),1),dtype=th.float).to(device)
+        for i,feat in enumerate(POs_feat):
+            path_delays = self.model(feat)
+            max_delay = th.max(path_delays)
+            rst[i] = max_delay
+        return rst
 
 
 class Graphormer(nn.Module):
