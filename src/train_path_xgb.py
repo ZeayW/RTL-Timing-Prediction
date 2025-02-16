@@ -168,6 +168,9 @@ def train():
         pickle.dump(xgbr, f)
     print('Finish!')
 
+    print('Testing ...')
+    test('test',xgbr)
+
 if __name__ == "__main__":
     seed = random.randint(1, 10000)
     init(seed)
