@@ -71,12 +71,12 @@ def gather_data(data,index):
         feat_po = []
         critical_path_info = critical_paths[po_idx]
         feat = []
-        feat.append(critical_path_info['rank'])
-        feat.append(critical_path_info['rank_ratio'])
+        # feat.append(critical_path_info['rank'])
+        # feat.append(critical_path_info['rank_ratio'])
         feat.append(rand_paths_info['num_nodes'])
-        feat.append(rand_paths_info['num_seq'])
-        feat.append(rand_paths_info['num_cmb'])
-        feat.append(rand_paths_info['num_reg'])
+        # feat.append(rand_paths_info['num_seq'])
+        # feat.append(rand_paths_info['num_cmb'])
+        #feat.append(rand_paths_info['num_reg'])
         path = critical_path_info['path']
         pi = path[0]
         input_delay = pi2delay[pi]
@@ -122,8 +122,8 @@ def load_data(usage,flag_quick=True):
             labels.extend(cur_label)
             feat.extend(cur_feat)
 
-    feat = pd.DataFrame(np.array(feat))
-    labels = pd.DataFrame(np.array(labels))
+    feat = np.array(feat)
+    labels = np.array(labels)
     return feat,labels
 
 
@@ -156,8 +156,11 @@ def train():
 
     train_feat,train_label = load_data('train',options.quick)
 
+    train_feat = pd.DataFrame(train_feat)
+    train_label = pd.DataFrame(train_label)
     print('Training ...')
-    xgbr = xgb.XGBRegressor(n_estimators=500, max_depth=100, nthread=25)
+    #xgbr = xgb.XGBRegressor(n_estimators=100, max_depth=45, nthread=25)
+    xgbr = xgb.XGBRegressor(n_estimators=45, max_depth=8, nthread=25)
     xgbr.fit(train_feat, train_label)
 
     save_dir = '../checkpoints/{}'.format(options.checkpoint)
