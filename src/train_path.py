@@ -58,6 +58,7 @@ def cat_tensor(t1,t2):
     else:
         return th.cat((t1,t2),dim=0)
 
+
 def gather_data(data,index):
 
     random_paths = data['random_paths']
@@ -69,9 +70,9 @@ def gather_data(data,index):
         feat_global = []
         feat_global.append(critical_path_info['rank'])
         feat_global.append(critical_path_info['rank_ratio'])
-        # feat_global.append(rand_paths_info['num_nodes'])
-        # feat_global.append(rand_paths_info['num_seq'])
-        # feat_global.append(rand_paths_info['num_cmb'])
+        feat_global.append(rand_paths_info['num_nodes'])
+        feat_global.append(rand_paths_info['num_seq'])
+        feat_global.append(rand_paths_info['num_cmb'])
         feat_global.append(rand_paths_info['num_reg'])
 
         rand_paths = rand_paths_info['paths_rd']
@@ -144,7 +145,7 @@ def init_model(options):
     #                    feat_dim=128,
     #                    hidden_dim=256)
 
-    model = PathModel(infeat_dim=14+max_len,hidden_dim=options.hidden_dim)
+    model = PathModel(infeat_dim=20+max_len,hidden_dim=options.hidden_dim)
     print("creating model:")
     print(model)
 
