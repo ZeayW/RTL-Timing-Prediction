@@ -139,13 +139,17 @@ def init(seed):
 def test(usage,model):
     feat, labels = load_data(usage, options.quick)
     labels_hat = model.predict(feat)
-    labels = th.tensor(labels).ti(device)
+    labels = th.tensor(labels).to(device)
     labels_hat = th.tensor(labels_hat).to(device)
     test_r2 = R2_score(labels_hat, labels).item()
     test_mape = th.mean(th.abs(labels_hat[labels != 0] - labels[labels != 0]) / labels[labels != 0])
     ratio = labels_hat[labels != 0] / labels[labels != 0]
     min_ratio = th.min(ratio)
     max_ratio = th.max(ratio)
+    print(
+        '\ttest:\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(test_r2,
+                                                                                     test_mape, test_min_ratio,
+                                                                                     test_max_ratio))
 
     return test_r2,test_mape,min_ratio,max_ratio
 
@@ -187,9 +191,6 @@ if __name__ == "__main__":
         usages = ['test']
         for usage in usages:
             test_r2, test_mape, test_min_ratio, test_max_ratio = test(usage,model)
-            print(
-                '\ttest:\tr2={:.3f}\tmape={:.3f}\tmin_ratio={:.2f}\tmax_ratio={:.2f}'.format(test_r2,
-                                                                                                         test_mape,test_min_ratio,test_max_ratio))
 
     elif options.checkpoint:
         print('saving logs and models to ../checkpoints/{}'.format(options.checkpoint))
